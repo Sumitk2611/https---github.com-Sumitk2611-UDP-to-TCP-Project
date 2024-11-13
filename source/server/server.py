@@ -2,26 +2,11 @@ import socket
 import argparse
 
 def argument_parser():
-    port = 5000
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--port", type = int , help="port to connect to ")
-    parser.add_argument("-ip", "--ip_address", required=True, help="the server's ip address")
+    parser = argparse.ArgumentParser(description="Server Side")
+    parser.add_argument( "--listen-port", required=True, type = int , help="Port to listen on ")
+    parser.add_argument( "--listen-ip", required=True, help="IP Address to bind to")
     args = parser.parse_args()
-
-    if(args.port):
-        port = args.port
-        print(f"Using Port: {port}")
-    else:
-        print(f"No port provided. Using port: {port}")
-
-    if(args.ip_address):
-        ip_address = args.ip_address
-        print(f"Inputted IP Address: {ip_address}")
-    else:
-        print("No IP address provied")
-        exit(0)
-
-    return (ip_address,port)
+    return (args.listen_ip,args.listen_port)
 
 def create_socket():
     try:

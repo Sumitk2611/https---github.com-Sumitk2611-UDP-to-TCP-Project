@@ -4,26 +4,14 @@ import argparse
 def argument_parser():
     """Parse command-line arguments for IP and port."""
     port = 5000
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--port", type=int, help="port to connect to")
-    parser.add_argument("-ip", "--ip_address", required=True, help="the server's IP address")
+    parser = argparse.ArgumentParser(description="Client Side")
+    parser.add_argument( "--target-port", required=True, type=int, help="Server Port Number")
+    parser.add_argument("--target-ip", required=True, help="Server IP Address")
+    parser.add_argument("--timeout", required=True, help="Timeout in seconds")
     args = parser.parse_args()
 
-    if args.port:
-        port = args.port
-        print(f"Using Port: {port}")
-    else:
-        print(f"No port provided. Using default port: {port}")
-
-    if args.ip_address:
-        ip_address = args.ip_address
-        print(f"Inputted IP Address: {ip_address}")
-    else:
-        print("No IP address provided")
-        exit(0)
-
-    return ip_address, port
-
+    return ((args.target_ip, args.target_port),args.timeout)
+    
 def create_socket():
     """Create a UDP socket."""
     try:
@@ -59,7 +47,7 @@ def close_socket(socket_fd):
         raise e
 
 def main():
-    ip_port_tuple = argument_parser()
+    ip_port_tuple, timeout = argument_parser()
 
     try:
         s = create_socket()
