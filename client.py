@@ -1,6 +1,7 @@
 import socket
 import argparse
 import json
+import time
 
 TCP_handshake = False
 
@@ -59,30 +60,27 @@ def create_packet(data,sequence, acknowledgement, flags=[]):
     return json.dumps(new_packet)
 
 def create_connection(socket_fd, ip_port_tuple):
-    send_SYN_packet(socket_fd, ip_port_tuple)
-    if received_SYN_ACK_packet(socket_fd):
-        send_ACK_packet(socket_fd, ip_port_tuple)
+    send_flag_packet("",socket_fd, ip_port_tuple, flags=["SYN"])
+    if received_flag_packet(socket_fd, flags=["SYN", "ACK"]):
+        send_flag_packet("",socket_fd, ip_port_tuple, flags=["ACK"])
         return True
-def send_SYN_packet(socket_fd, ip_port_tuple):
-    packet = create_packet("", 0, 1, ["SYN"])
-    print("Sending SYN Packet")
+    
+def send_flag_packet(data , socket_fd, ip_port_tuple, flags=[]):
+    packet = create_packet(data, 0, 1, flags)
+    print(f"Sending {flags} Packet")
     send_message(socket_fd, packet, ip_port_tuple)
 
-def received_SYN_ACK_packet(socket_fd):
+def received_flag_packet(socket_fd, flags=[]):
     packet_json = wait_for_packet(socket_fd)
-    if(len(packet_json['flags']) == 2 and packet_json['flags'][0]=="SYN" and packet_json['flags'][1]=="ACK"):
-        print("Received SYN ACK Packet")
+    if(len(packet_json['flags']) == len(flags) and packet_json['flags'][0]==flags[0] and packet_json['flags'][1]==flags[1]):
+        print(f"Received {flags} Packet")
         return True
 
-def send_ACK_packet(socket_fd, ip_port_tuple):
-    res_packet = create_packet("", sequence=0, acknowledgement=1, flags=["ACK"])
-    print("Sending ACK")
-    send_message(socket_fd, res_packet, ip_port_tuple)
-    
 def wait_for_packet(socket_fd):
     packet_string = receive_message(socket_fd)
     packet_json = json.loads(packet_string)
     return packet_json
+
 
 def main():
     TCP_handshake = False

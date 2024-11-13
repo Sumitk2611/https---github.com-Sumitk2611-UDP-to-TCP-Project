@@ -61,26 +61,24 @@ def create_packet(data,sequence, acknowledgement, flags=[]):
         
 
 def accept_connection(socket_fd):
-    packet_json, client_tuple = received_SYN(socket_fd)
+
+    #received SYN packet
+    packet_json, client_tuple = received_flag(socket_fd, flags=["SYN"])
     #received response
     if packet_json:
         send_SYN_ACK_Packet(socket_fd, client_tuple)
-        packet_json = received_ACK(socket_fd)
-        print("Received ACK")
-        print("TCP Handshake Completed")
-        return True
+        packet_json, client_tuple = received_flag(socket_fd, flags=["ACK"])
+        if packet_json:
+            print("Received ACK")
+            print("TCP Handshake Completed")
+            return True
 
-def received_SYN(socket_fd):
+def received_flag(socket_fd, flags=[]):
     packet_json, client_tuple = wait_for_packet(socket_fd)
-    if(len(packet_json['flags']) == 1 and packet_json['flags'][0]=="SYN"):
-        print("Received SYN Packet")
+    if(len(packet_json['flags']) == len(flags) and packet_json['flags'][0]==flags[0]):
+        print(f"Received {flags} Packet")
         return (packet_json, client_tuple)
           
-def received_ACK(socket_fd):
-    packet_json, client_tuple = wait_for_packet(socket_fd)
-    if(len(packet_json['flags']) == 1 and packet_json['flags'][0]=="ACK"):
-        print("Received ACK Packet")
-        return packet_json
 
 def wait_for_packet(socket_fd):
     packet_string, client_tuple = receive_message(socket_fd)
