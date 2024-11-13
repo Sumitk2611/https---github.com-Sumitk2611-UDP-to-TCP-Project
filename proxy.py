@@ -199,8 +199,7 @@ class ProxyServer:
 
     def __send(self, ip: str, port: int, data: str) -> Result[None, str]:
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(data, (ip, port))
+            self.socket.sendto(data, (ip, port))
         except socket.error as e:
             return Err(e.strerror)
 
