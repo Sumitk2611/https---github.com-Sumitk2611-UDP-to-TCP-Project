@@ -65,7 +65,7 @@ def accept_connection(socket_fd):
     #received response
     if packet_json:
         send_SYN_ACK_Packet(socket_fd, client_tuple)
-        packet_json, client_tuple = wait_for_packet(socket_fd)
+        packet_json = received_ACK(socket_fd)
         print("Received ACK")
         print("TCP Handshake Completed")
         return True
