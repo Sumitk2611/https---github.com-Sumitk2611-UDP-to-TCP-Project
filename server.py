@@ -37,7 +37,7 @@ class TcpSession:
         packet = TcpPacket(
             flags=TcpFlags(SYN=True, ACK=True), sequence=0, acknowledgement=1, data=""
         )
-        b_packet = packet.to_json().encode()
+        b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
         if is_err(send_result):
@@ -74,7 +74,7 @@ def main():
 
     while True:
         data, addr = sock.recv(1024).ok_value
-        cpacket: TcpPacket = TcpPacket.from_json(data)
+        cpacket: TcpPacket = TcpPacket.from_bin(data)
 
         if addr in connections.keys():
             session = connections.get(addr)

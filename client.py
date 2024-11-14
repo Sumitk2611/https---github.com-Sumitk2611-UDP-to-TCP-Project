@@ -45,7 +45,7 @@ class TcpClient:
         packet = TcpPacket(
             flags=TcpFlags(SYN=True), sequence=0, acknowledgement=1, data=""
         )
-        b_packet = packet.to_json().encode()
+        b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
         if is_err(send_result):
@@ -59,7 +59,7 @@ class TcpClient:
             return recv_result
 
         (raw_data, _) = recv_result.ok_value
-        packet: TcpPacket = TcpPacket.from_json(raw_data)
+        packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.is_syn_ack():
             return Ok(None)
 
@@ -69,7 +69,7 @@ class TcpClient:
         packet = TcpPacket(
             flags=TcpFlags(ACK=True), sequence=0, acknowledgement=1, data=""
         )
-        b_packet = packet.to_json().encode()
+        b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
         if is_err(send_result):

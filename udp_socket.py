@@ -46,7 +46,7 @@ class UdpSocket:
     def recv(self, buf: int) -> Result[Tuple[bytes, Tuple[str, int]], Exception | str]:
         try:
             data, addr = self.sock.recvfrom(buf)
-            return Ok((data.decode("utf-8"), addr))
+            return Ok((data, addr))
         except socket.error as e:
             return Err(e.strerror)
         except Exception as e:

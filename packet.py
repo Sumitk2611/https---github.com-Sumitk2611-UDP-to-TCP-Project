@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from typing import Any
-from dataclasses_json import dataclass_json
+import pickle
 
 
-@dataclass_json
 @dataclass(init=False)
 class TcpFlags:
     SYN: bool = False
@@ -23,10 +22,16 @@ class TcpFlags:
         return self.SYN and self.ACK
 
 
-@dataclass_json
+
 @dataclass(init=True)
 class TcpPacket:
     flags: TcpFlags
     sequence: int
     acknowledgement: int
     data: str
+
+    def to_bin(self) -> bytes:
+        return pickle.dumps(self)
+
+    def from_bin(data: bytes):
+        return pickle.loads(data)
