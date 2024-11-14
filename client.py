@@ -4,6 +4,7 @@ from transitions import Machine
 from udp_socket import UdpSocket
 from packet import TcpPacket, TcpFlags
 import time
+from transitions.extensions import GraphMachine
 
 
 def argument_parser():
@@ -33,13 +34,15 @@ class TcpClient:
         self.server_port = port
 
         self.sock = UdpSocket()
-        self.machine = Machine(model=self, states=TcpClient.states, initial="CLOSED")
+        self.machine = GraphMachine(model=self, states=TcpClient.states, initial="CLOSED")
 
         self.machine.add_transition("s_send_syn", "CLOSED", "SYN_SENT")
         self.machine.add_transition("s_recv_syn_ack", "SYN_SENT", "SYN_ACK_RECVD")
         self.machine.add_transition(
             "s_establish_connection", "SYN_ACK_RECVD", "ESTABLISHED"
         )
+
+        self.get_graph().draw('client_state_diagram.png', prog='dot')
 
     def __send_syn_packet(self) -> Result[None, str]:
         packet = TcpPacket(
@@ -102,6 +105,7 @@ class TcpClient:
 
 def main():
     client = TcpClient(host="127.0.0.1", port=9000)
+
     connect_result = client.connect()
     if is_err(connect_result):
         print(connect_result.err())

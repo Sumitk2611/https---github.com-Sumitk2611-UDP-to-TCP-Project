@@ -4,6 +4,7 @@ from packet import TcpPacket, TcpFlags
 from typing import Dict, Tuple
 from transitions import Machine
 from result import Ok, Err, Result, is_ok, is_err
+from transitions.extensions import GraphMachine
 
 
 def argument_parser():
@@ -29,9 +30,11 @@ class TcpSession:
         self.client_ip = client_ip
         self.client_port = client_port
 
-        self.machine = Machine(model=self, states=TcpSession.states, initial="CLOSED")
+        self.machine = GraphMachine(model=self, states=TcpSession.states, initial="CLOSED")
         self.machine.add_transition("s_syn_recvd", "CLOSED", "SYN_RECVD")
         self.machine.add_transition("s_established", "SYN_RECVD", "ESTABLISHED")
+
+        self.get_graph().draw('server_state_diagram.png', prog='dot')
 
     def __send_syn_ack(self) -> Result[None, Exception | str]:
         packet = TcpPacket(
