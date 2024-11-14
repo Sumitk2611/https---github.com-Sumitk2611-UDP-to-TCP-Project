@@ -38,13 +38,22 @@ class TcpSession:
             flags=TcpFlags(SYN=True, ACK=True), sequence=0, acknowledgement=1, data=""
         )
         b_packet = packet.to_json().encode()
-        self.sock.send(b_packet, self.client_ip, self.client_port)
+
+        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
+        if is_err(send_result):
+            return send_result
+
+        return Ok(None)
 
     def on_packet(self, packet: TcpPacket):
         match self.state:
             case "CLOSED":
                 if packet.flags.SYN:
-                    self.__send_syn_ack()
+                    send_result = self.__send_syn_ack()
+                    if is_err(send_result):
+                        print(f"An error occured while sending syn ack to {self.client_ip} {self.client_port}")
+                        print(send_result.err())
+
                     self.s_syn_recvd()
             case "SYN_RECVD":
                 if packet.flags.ACK:
