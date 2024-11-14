@@ -178,6 +178,7 @@ class ArgumentsHandler:
 class ProxyServer:
     def __init__(self, args: ProxyConfig) -> None:
         self.args = args
+        self.client_sockets = {}
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def update_args(self, args: ProxyConfig):
@@ -197,13 +198,13 @@ class ProxyServer:
     def __is_server(self, ip, port):
         return ip == self.args.target_ip and port == self.args.target_port
 
-    def __send(self, ip: str, port: int, data: str) -> Result[None, str]:
+    def __send_to_server(self, ip: str, port: int, data: str) -> Result[socket, str]:
         try:
-            self.socket.sendto(data, (ip, port))
+            socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            socket.sendto(data, (ip, port))
+            return Ok(socket)
         except socket.error as e:
             return Err(e.strerror)
-
-        return Ok(None)
 
     def __handle_server_connection(self, ip, port, data):
         print("Server connection!")
@@ -220,9 +221,12 @@ class ProxyServer:
         server_ip = self.args.target_ip
         server_port = self.args.target_port
 
-        send_result = self.__send(server_ip, server_port, data)
+        send_result = self.__send_to_server(server_ip, server_port, data)
         if (is_err(send_result)):
             print(f"An error occured while sending packet from client {ip} {port} to server")
+
+        client_socket: socket.socket = send_result.ok_value
+        self.client_sockets[client_socket] = (ip, port)
 
     def start(self):
         listen_ip = self.args.listen_ip

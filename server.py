@@ -1,132 +1,80 @@
-import socket
 import argparse
-import json
+from udp_socket import UdpSocket
+from packet import TcpPacket, TcpFlags
+from typing import Dict, Tuple
+from transitions import Machine
+from result import Ok, Err, Result, is_ok, is_err
+
 
 def argument_parser():
     parser = argparse.ArgumentParser(description="Server Side")
-    parser.add_argument( "--listen-port", required=True, type = int , help="Port to listen on ")
-    parser.add_argument( "--listen-ip", required=True, help="IP Address to bind to")
+    parser.add_argument(
+        "--listen-port", required=True, type=int, help="Port to listen on "
+    )
+    parser.add_argument("--listen-ip", required=True, help="IP Address to bind to")
     args = parser.parse_args()
-    return (args.listen_ip,args.listen_port)
+    return (args.listen_ip, args.listen_port)
 
-def create_socket():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        return s
-    except socket.error as e:
-        print(f"Unable to create socket due to Error: {e}")
-        raise e
 
-def close_socket(socket_fd):
-    try:
-        socket_fd.close()
-    except socket.error as e:
-        raise e
-    
-def bind(socket_fd,IP_PORT_TUPLE):
-    try:
-        socket_fd.bind(IP_PORT_TUPLE)
-    except socket.error as e:
-        print(f"Unable to bind socket due to Error: {e}")
-        raise e
+class TcpSession:
+    sock: UdpSocket
+    machine: Machine
+    client_ip: str
+    client_port: str
 
-def send_message(socket_fd, data, ip_port_tuple):
-    """Send a message to the server."""
-    try:
-        socket_fd.sendto(data.encode('utf-8'), ip_port_tuple)
-    except socket.error as e:
-        print(f"Unable to send data due to Error: {e}")
-        raise e
+    states = ["CLOSED", "SYN_RECVD", "ESTABLISHED"]
 
-def receive_message(socket_fd):
-    try:
-        data, client_address = socket_fd.recvfrom(1024)  # Receive up to 1024 bytes
-        return data.decode('utf-8'), client_address
-    except socket.error as e:
-        print(f"Error receiving message: {e}")
-        raise e
+    def __init__(self, sock: UdpSocket, client_ip: str, client_port: str) -> None:
+        self.sock = sock
+        self.client_ip = client_ip
+        self.client_port = client_port
 
-def create_packet(data,sequence, acknowledgement, flags=[]):
-    try:
-        new_packet = {
-            "flags": flags,
-            "sequence": sequence,
-            "acknowledgement": acknowledgement,
-            "data": data
-        }
-        return json.dumps(new_packet)
-    except:
-        print("Unable to create packet")
-        raise RuntimeError("Failed to Create Packet")
-        
+        self.machine = Machine(model=self, states=TcpSession.states, initial="CLOSED")
+        self.machine.add_transition("s_syn_recvd", "CLOSED", "SYN_RECVD")
+        self.machine.add_transition("s_established", "SYN_RECVD", "ESTABLISHED")
 
-def accept_connection(socket_fd):
+    def __send_syn_ack(self) -> Result[None, Exception | str]:
+        packet = TcpPacket(
+            flags=TcpFlags(SYN=True, ACK=True), sequence=0, acknowledgement=1, data=""
+        )
+        b_packet = packet.to_json().encode()
+        self.sock.send(b_packet, self.client_ip, self.client_port)
 
-    #received SYN packet
-    packet_json, client_tuple = received_flag(socket_fd, flags=["SYN"])
-    #received response
-    if packet_json:
-        send_SYN_ACK_Packet(socket_fd, client_tuple)
-        packet_json, client_tuple = received_flag(socket_fd, flags=["ACK"])
-        if packet_json:
-            print("Received ACK")
-            print("TCP Handshake Completed")
-            return True
+    def on_packet(self, packet: TcpPacket):
+        match self.state:
+            case "CLOSED":
+                if packet.flags.SYN:
+                    self.__send_syn_ack()
+                    self.s_syn_recvd()
+            case "SYN_RECVD":
+                if packet.flags.ACK:
+                    self.s_established()
+                    print(f"Connection established {self.client_ip} {self.client_port}")
 
-def received_flag(socket_fd, flags=[]):
-    packet_json, client_tuple = wait_for_packet(socket_fd)
-    if(len(packet_json['flags']) == len(flags) and packet_json['flags'][0]==flags[0]):
-        print(f"Received {flags} Packet")
-        return (packet_json, client_tuple)
-          
-
-def wait_for_packet(socket_fd):
-    packet_string, client_tuple = receive_message(socket_fd)
-    packet_json = json.loads(packet_string)
-    return (packet_json, client_tuple)
-
-def send_SYN_ACK_Packet(socket_fd, client_tuple):
-        res_packet = create_packet("", sequence=0, acknowledgement=1, flags=["SYN","ACK"])
-        print("Sending SYN ACK")
-        send_message(socket_fd, res_packet, client_tuple)
         return
 
 
 def main():
-    ip_port_tuple = argument_parser()
-    TCP_handshake = False
-    try:
-        s = create_socket()
-    except socket.error as e:
-        exit(1)
+    ip, port = argument_parser()
 
-    try:
-        bind(s, ip_port_tuple)
-    except socket.error:
-        close_socket(s)
-        exit(1)
+    sock = UdpSocket()
+    sock.create()
+    sock.bind(ip, port)
 
-    try:
-        print("UDP Chat Server Started")
-        while True:
-            try:
-                # Receive a message from the client
-                if not TCP_handshake:
-                    TCP_handshake = accept_connection(s)
-                    
-                if TCP_handshake:
-                    data, client_address = receive_message(s)
-                    print(f"Client ({client_address}): {data}")
+    connections: Dict[Tuple[str, int], TcpSession] = {}
 
-            except KeyboardInterrupt:
-                print("\nShutting down server")
-                break
-            except socket.error as e:
-                print(f"Error during communication: {e}")
-                break
-    finally:
-        close_socket(s)
-        print("Server shut down")
+    while True:
+        data, addr = sock.recv(1024).ok_value
+        cpacket: TcpPacket = TcpPacket.from_json(data)
+
+        if addr in connections.keys():
+            session = connections.get(addr)
+            session.on_packet(cpacket)
+        else:
+            session = TcpSession(sock, addr[0], addr[1])
+            connections[addr] = session
+            session.on_packet(cpacket)
+
 
 if __name__ == "__main__":
     main()

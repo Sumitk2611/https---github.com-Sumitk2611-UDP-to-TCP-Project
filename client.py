@@ -1,117 +1,116 @@
-import socket
 import argparse
-import json
+from result import Ok, Err, Result, is_ok, is_err
+from transitions import Machine
+from udp_socket import UdpSocket
+from packet import TcpPacket, TcpFlags
 import time
 
-TCP_handshake = False
 
 def argument_parser():
     """Parse command-line arguments for IP and port."""
     port = 5000
     parser = argparse.ArgumentParser(description="Client Side")
-    parser.add_argument( "--target-port", required=True, type=int, help="Server Port Number")
+    parser.add_argument(
+        "--target-port", required=True, type=int, help="Server Port Number"
+    )
     parser.add_argument("--target-ip", required=True, help="Server IP Address")
     parser.add_argument("--timeout", required=True, help="Timeout in seconds")
     args = parser.parse_args()
 
-    return ((args.target_ip, args.target_port),args.timeout)
-    
-def create_socket():
-    """Create a UDP socket."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        return s
-    except socket.error as e:
-        print(f"Unable to create socket due to Error: {e}")
-        raise e
+    return ((args.target_ip, args.target_port), args.timeout)
 
-def send_message(socket_fd, data, ip_port_tuple):
-    """Send a message to the server."""
-    try:
-        socket_fd.sendto(data.encode('utf-8'), ip_port_tuple)
-    except socket.error as e:
-        print(f"Unable to send data due to Error: {e}")
-        raise e
 
-def receive_message(socket_fd, buffer_size=1024):
-    """Receive a message from the server."""
-    try:
-        data, _ = socket_fd.recvfrom(buffer_size)
-        return data.decode('utf-8')
-    except socket.error as e:
-        print(f"Unable to receive data due to Error: {e}")
-        raise e
+class TcpClient:
+    sock: UdpSocket
+    machine: Machine
+    server_host: str
+    server_port: int
 
-def close_socket(socket_fd):
-    """Close the socket."""
-    try:
-        socket_fd.close()
-    except socket.error as e:
-        print(f"Error closing socket: {e}")
-        raise e
+    states = ["CLOSED", "SYN_SENT", "SYN_ACK_RECVD", "ESTABLISHED"]
 
-def create_packet(data,sequence, acknowledgement, flags=[]):
-    new_packet = {
-        "flags": flags,
-        "sequence": sequence,
-        "acknowledgement": acknowledgement,
-        "data": data
-    }
-    return json.dumps(new_packet)
+    def __init__(self, host: str, port: int) -> None:
+        self.server_host = host
+        self.server_port = port
 
-def create_connection(socket_fd, ip_port_tuple):
-    send_flag_packet("",socket_fd, ip_port_tuple, flags=["SYN"])
-    if received_flag_packet(socket_fd, flags=["SYN", "ACK"]):
-        send_flag_packet("",socket_fd, ip_port_tuple, flags=["ACK"])
-        return True
-    
-def send_flag_packet(data , socket_fd, ip_port_tuple, flags=[]):
-    packet = create_packet(data, 0, 1, flags)
-    print(f"Sending {flags} Packet")
-    send_message(socket_fd, packet, ip_port_tuple)
+        self.sock = UdpSocket()
+        self.machine = Machine(model=self, states=TcpClient.states, initial="CLOSED")
 
-def received_flag_packet(socket_fd, flags=[]):
-    packet_json = wait_for_packet(socket_fd)
-    if(len(packet_json['flags']) == len(flags) and packet_json['flags'][0]==flags[0] and packet_json['flags'][1]==flags[1]):
-        print(f"Received {flags} Packet")
-        return True
+        self.machine.add_transition("s_send_syn", "CLOSED", "SYN_SENT")
+        self.machine.add_transition("s_recv_syn_ack", "SYN_SENT", "SYN_ACK_RECVD")
+        self.machine.add_transition(
+            "s_establish_connection", "SYN_ACK_RECVD", "ESTABLISHED"
+        )
 
-def wait_for_packet(socket_fd):
-    packet_string = receive_message(socket_fd)
-    packet_json = json.loads(packet_string)
-    return packet_json
+    def __send_syn_packet(self) -> Result[None, str]:
+        packet = TcpPacket(
+            flags=TcpFlags(SYN=True), sequence=0, acknowledgement=1, data=""
+        )
+        b_packet = packet.to_json().encode()
+
+        send_result = self.sock.send(b_packet, self.server_host, self.server_port)
+        if is_err(send_result):
+            return send_result
+
+        return Ok(None)
+
+    def __recv_syn_ack_packet(self) -> Result[None, str]:
+        recv_result = self.sock.recv(1024)
+        if is_err(recv_result):
+            return recv_result
+
+        (raw_data, _) = recv_result.ok_value
+        packet: TcpPacket = TcpPacket.from_json(raw_data)
+        if packet.flags.is_syn_ack():
+            return Ok(None)
+
+        return Err(f"Expected a syn-ack packet, recieved {packet}")
+
+    def __send_ack_packet(self) -> Result[None, str]:
+        packet = TcpPacket(
+            flags=TcpFlags(ACK=True), sequence=0, acknowledgement=1, data=""
+        )
+        b_packet = packet.to_json().encode()
+
+        send_result = self.sock.send(b_packet, self.server_host, self.server_port)
+        if is_err(send_result):
+            return send_result
+
+        return Ok(None)
+
+    def connect(self) -> Result[None, str]:
+        create_result = self.sock.create()
+        if is_err(create_result):
+            return create_result
+
+        send_result = self.__send_syn_packet()
+        if is_err(send_result):
+            return send_result
+        self.s_send_syn()
+
+        recv_result = self.__recv_syn_ack_packet()
+        if is_err(recv_result):
+            return recv_result
+        self.s_recv_syn_ack()
+
+        send_result = self.__send_ack_packet()
+        if is_err(send_result):
+            return send_result
+        self.s_establish_connection()
+
+        return Ok(None)
 
 
 def main():
-    TCP_handshake = False
-    ip_port_tuple, timeout = argument_parser()
+    client = TcpClient(host="127.0.0.1", port=9000)
+    connect_result = client.connect()
+    if is_err(connect_result):
+        print(connect_result.err())
+        exit(-1)
 
-    try:
-        s = create_socket()
-    except socket.error:
-        exit(1)
+    while True:
+        time.sleep(1000)
+        pass
 
-    try:
-        print("UDP Client Started. Type your messages below:")
-        while True:
-            try:
-                if not TCP_handshake:
-                    TCP_handshake = create_connection(s, ip_port_tuple)
-                    
-                if TCP_handshake:
-                    # Send a message to the server
-                    message = input("You: ")
-                    send_message(s, message, ip_port_tuple)
-
-            except KeyboardInterrupt:
-                print("\nShutting down client.")
-                break
-    finally:
-        close_socket(s)
-        print("Client shut down")
 
 if __name__ == "__main__":
     main()
-
-
-
