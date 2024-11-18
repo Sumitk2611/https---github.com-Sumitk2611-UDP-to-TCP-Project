@@ -47,6 +47,18 @@ class TcpSession:
             return send_result
 
         return Ok(None)
+    
+    def __send_ack(self) -> Result[None, Exception | str]:
+        packet = TcpPacket(
+            flags=TcpFlags(ACK=True), sequence=0, acknowledgement=1, data=""
+        )
+        b_packet = packet.to_bin()
+
+        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
+        if is_err(send_result):
+            return send_result
+
+        return Ok(None)
 
     def on_packet(self, packet: TcpPacket):
         match self.state:
@@ -62,6 +74,14 @@ class TcpSession:
                 if packet.flags.ACK:
                     self.s_established()
                     print(f"Connection established {self.client_ip} {self.client_port}")
+            
+            case "ESTABLISHED":
+                if packet.flags.is_psh_ack():
+                    print(packet.data)
+                    send_result = self.__send_ack()
+                    if is_err(send_result):
+                        print(f"An error occured while sending ack to {self.client_ip} {self.client_port}")
+                        print(send_result.err())
 
         return
 
@@ -78,7 +98,6 @@ def main():
     while True:
         data, addr = sock.recv(1024).ok_value
         cpacket: TcpPacket = TcpPacket.from_bin(data)
-
         if addr in connections.keys():
             session = connections.get(addr)
             session.on_packet(cpacket)
@@ -90,3 +109,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    

@@ -20,6 +20,9 @@ class TcpFlags:
     
     def is_syn_ack(self):
         return self.SYN and self.ACK
+    
+    def is_psh_ack(self):
+        return self.PSH and self.ACK
 
 
 
