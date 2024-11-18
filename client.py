@@ -27,7 +27,9 @@ class TcpClient:
     server_port: int
 
     states = ["CLOSED", "SYN_SENT", "SYN_ACK_RECVD", "ESTABLISHED"]
-
+    last_sequence = 300
+    last_acknowledgement = 0
+    expected_sequence = last_sequence
     def __init__(self, host: str, port: int) -> None:
         self.server_host = host
         self.server_port = port
@@ -45,8 +47,9 @@ class TcpClient:
 
     def __send_syn_packet(self) -> Result[None, str]:
         packet = TcpPacket(
-            flags=TcpFlags(SYN=True), sequence=0, acknowledgement=1, data=""
+            flags=TcpFlags(SYN=True), sequence=self.last_sequence, acknowledgement=self.last_acknowledgement, data=""
         )
+        self.last_sequence+=1
         b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
@@ -63,13 +66,13 @@ class TcpClient:
         (raw_data, _) = recv_result.ok_value
         packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.is_syn_ack():
-            return Ok(None)
+            return Ok(packet)
 
         return Err(f"Expected a syn-ack packet, recieved {packet}")
 
     def __send_ack_packet(self) -> Result[None, str]:
         packet = TcpPacket(
-            flags=TcpFlags(ACK=True), sequence=0, acknowledgement=1, data=""
+            flags=TcpFlags(ACK=True), sequence=self.last_sequence, acknowledgement=self.last_acknowledgement, data=""
         )
         b_packet = packet.to_bin()
 
@@ -81,8 +84,9 @@ class TcpClient:
     
     def __send_data_packet(self, data) -> Result [None, str]:
         packet = TcpPacket(
-            flags=TcpFlags(PSH=True, ACK=True), sequence=0, acknowledgement=1, data= data
+            flags=TcpFlags(PSH=True, ACK=True), sequence=self.last_sequence, acknowledgement=self.last_acknowledgement, data= data
         )
+        self.expected_sequence = self.last_sequence + len(data)
         b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
@@ -99,7 +103,7 @@ class TcpClient:
         (raw_data, _) = recv_result.ok_value
         packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.ACK:
-            return Ok(None)
+            return Ok(packet)
 
         return Err(f"Expected a ACK packet, recieved {packet}")
 
@@ -117,7 +121,8 @@ class TcpClient:
         if is_err(recv_result):
             return recv_result
         self.s_recv_syn_ack()
-
+        self.last_acknowledgement = recv_result.ok_value.sequence + 1
+        
         send_result = self.__send_ack_packet()
         if is_err(send_result):
             return send_result
@@ -132,6 +137,10 @@ class TcpClient:
             return send_result
 
         recv_result = self.__recv_ack_packet()
+        if(self.expected_sequence == recv_result.ok_value.acknowledgement):
+            self.last_sequence = recv_result.ok_value.acknowledgement
+            print("Packet was received properly")
+        
         if is_err(recv_result):
             return recv_result
         
