@@ -21,4 +21,5 @@ stateDiagram-v2
   CLOSED --> SYN_SENT: s_send_syn
   SYN_SENT --> SYN_ACK_RECVD: s_recv_syn_ack
   SYN_ACK_RECVD --> ESTABLISHED: s_establish_connection
+  ESTABLISHED --> CLOSED: s_close
   [*] --> CLOSED

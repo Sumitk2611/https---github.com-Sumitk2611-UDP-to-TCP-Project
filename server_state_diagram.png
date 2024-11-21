@@ -15,7 +15,14 @@ stateDiagram-v2
   Class SYN_RECVD s_default
   state "ESTABLISHED" as ESTABLISHED
   Class ESTABLISHED s_default
+  state "LAST_ACK" as LAST_ACK
+  Class LAST_ACK s_default
   
   CLOSED --> SYN_RECVD: s_syn_recvd
+  CLOSED --> CLOSED: s_rst
   SYN_RECVD --> ESTABLISHED: s_established
+  SYN_RECVD --> CLOSED: s_rst
+  ESTABLISHED --> LAST_ACK: s_wait_for_ack
+  ESTABLISHED --> CLOSED: s_rst
+  LAST_ACK --> CLOSED: s_closed | s_rst
   [*] --> CLOSED

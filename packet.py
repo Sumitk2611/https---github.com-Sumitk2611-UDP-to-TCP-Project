@@ -8,13 +8,17 @@ class TcpFlags:
     SYN: bool = False
     ACK: bool = False
     PSH: bool = False
+    FIN: bool = False
+    RST: bool = False
 
-    def __init__(self, SYN: bool = False, ACK: bool = False, PSH: bool = False) -> None:
+    def __init__(self, SYN: bool = False, ACK: bool = False, PSH: bool = False, FIN: bool = False, RST: bool = False) -> None:
         self.SYN = SYN
         self.ACK = ACK
         self.PSH = PSH
+        self.FIN = FIN
+        self.RST = RST
 
-        if (not(SYN or ACK or PSH)):
+        if (not(SYN or ACK or PSH or FIN or RST)):
             raise "Atleast one TCP flag needs to be set"
         
     

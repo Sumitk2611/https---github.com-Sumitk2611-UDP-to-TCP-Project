@@ -42,6 +42,9 @@ class TcpClient:
         self.machine.add_transition(
             "s_establish_connection", "SYN_ACK_RECVD", "ESTABLISHED"
         )
+        self.machine.add_transition(
+            "s_close", "ESTABLISHED", "CLOSED"
+        )
 
         self.get_graph().draw('client_state_diagram.png', prog='dot')
 
@@ -67,6 +70,8 @@ class TcpClient:
         packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.is_syn_ack():
             return Ok(packet)
+        if packet.flags.RST:
+            return Err("Server Sent a RST Packet. Terminating Connection")
 
         return Err(f"Expected a syn-ack packet, recieved {packet}")
 
@@ -104,8 +109,36 @@ class TcpClient:
         packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.ACK:
             return Ok(packet)
+        if packet.flags.RST:
+            return Err("Server Sent a RST Packet. Terminating Connection")
 
         return Err(f"Expected a ACK packet, recieved {packet}")
+    
+    def __recv_fin_packet(self) -> Result[None, str]:
+        recv_result = self.sock.recv(1024)
+        if is_err(recv_result):
+            return recv_result
+
+        (raw_data, _) = recv_result.ok_value
+        packet: TcpPacket = TcpPacket.from_bin(raw_data)
+        if packet.flags.FIN:
+            return Ok(packet)
+        if packet.flags.RST:
+            return Err("Server Sent a RST Packet. Terminating Connection")
+
+        return Err(f"Expected a FIN packet, recieved {packet}")
+    
+    def __send_fin_packet(self) -> Result[None, str]:
+        packet = TcpPacket(
+            flags=TcpFlags(FIN=True), sequence=self.last_sequence, acknowledgement=self.last_acknowledgement, data=""
+        )
+        self.expected_sequence = self.last_sequence
+        b_packet = packet.to_bin()
+
+        send_result = self.sock.send(b_packet, self.server_host, self.server_port)
+        if is_err(send_result):
+            return send_result
+        return Ok(None)
 
     def connect(self) -> Result[None, str]:
         create_result = self.sock.create()
@@ -137,14 +170,37 @@ class TcpClient:
             return send_result
 
         recv_result = self.__recv_ack_packet()
+        if is_err(recv_result):
+            return recv_result
+    
         if(self.expected_sequence == recv_result.ok_value.acknowledgement):
             self.last_sequence = recv_result.ok_value.acknowledgement
-            print("Packet was received properly")
+
+        return Ok(None)
+    
+    def close_connection(self) -> Result[None, str]:
+        send_result = self.__send_fin_packet()
+        if is_err(send_result):
+            return send_result
         
+        recv_result = self.__recv_ack_packet()
         if is_err(recv_result):
             return recv_result
         
-        return Ok(None)
+        if(self.expected_sequence == recv_result.ok_value.acknowledgement):
+            self.last_sequence = recv_result.ok_value.acknowledgement
+        
+        recv_result = self.__recv_fin_packet()
+        if is_err(recv_result):
+            return recv_result
+        if(self.expected_sequence == recv_result.ok_value.acknowledgement):
+            self.last_sequence = recv_result.ok_value.acknowledgement
+        
+        send_result = self.__send_ack_packet()
+        if is_err(send_result):
+            return send_result
+        self.s_close()
+
 
 def main():
     server_ip = "127.0.0.1"
@@ -160,10 +216,17 @@ def main():
     try:
         while True:
             message = input("You: ")
-            client.send_message(data=message)
-            pass
-    except KeyboardInterrupt as e:
+            result = client.send_message(data=message)
+            if(is_err(result)):
+                raise Exception(result.err_value)
+    except KeyboardInterrupt:
+        print("\nExiting...")
+        client.close_connection()
         exit()
+    except Exception as e:
+        print(e)
+        exit()
+
 
 if __name__ == "__main__":
     main()
