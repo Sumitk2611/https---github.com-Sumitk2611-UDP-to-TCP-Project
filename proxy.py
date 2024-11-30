@@ -7,6 +7,7 @@ import os
 import time
 import json
 import random
+import select
 
 
 @dataclass
@@ -178,8 +179,8 @@ class ArgumentsHandler:
 class ProxyServer:
     def __init__(self, args: ProxyConfig) -> None:
         self.args = args
-        self.client_sockets = {}
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.client_to_server_sockets_map = {}
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def update_args(self, args: ProxyConfig):
         self.args = args
@@ -192,26 +193,60 @@ class ProxyServer:
     def __should_delay_client_packet(self) -> bool:
         return random.random() < (self.args.client_delay / 100.0)
 
+    def __should_drop_server_packet(self) -> bool:
+        chance = self.args.server_drop / 100.0
+        rand = random.random()
+        return rand < chance
+
+    def __should_delay_server_packet(self) -> bool:
+        return random.random() < (self.args.server_delay / 100.0)
+
     def __ms_to_s(self, raw: int):
         return raw / 1000.0
 
     def __is_server(self, ip, port):
         return ip == self.args.target_ip and port == self.args.target_port
 
-    def __send_to_server(self, ip: str, port: int, data: str) -> Result[socket, str]:
+    def __send_to_server(
+        self, ip: str, port: int, data, sock: socket.socket
+    ) -> Result[socket, str]:
         try:
-            socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            socket.sendto(data, (ip, port))
-            return Ok(socket)
+            if sock is None:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.sendto(data, (ip, port))
+            return Ok(sock)
         except socket.error as e:
             return Err(e.strerror)
 
-    def __handle_server_connection(self, ip, port, data):
+    def __send_to_client( self, ip: str, port: int, data) -> Result[None, str]:
+        try:
+            self.sock.sendto(data, (ip, port))
+            return Ok(None)
+        except socket.error as e:
+            return Err(e.strerror)
+
+    def __handle_server_connection(self, client_ip, client_port, data):
         print("Server connection!")
 
-    def __handle_client_connection(self, ip, port, data):
+        if self.__should_drop_server_packet():
+            print("Dropping server packet to client", client_ip, client_port)
+            return
+
+        if self.__should_delay_server_packet():
+            delay = self.__ms_to_s(self.args.server_delay)
+            time.sleep(delay)
+
+        send_result = self.__send_to_client(
+            client_ip, client_port, data 
+        )
+        if is_err(send_result):
+            print(
+                f"An error occured while sending packet from server to {client_ip} {client_port} client"
+            )
+
+    def __handle_client_connection(self, client_ip, client_port, data, server_socket):
         if self.__should_drop_client_packet():
-            print("Dropping client packet from client", ip, port)
+            print("Dropping client packet from client", client_ip, client_port)
             return
 
         if self.__should_delay_client_packet():
@@ -221,29 +256,56 @@ class ProxyServer:
         server_ip = self.args.target_ip
         server_port = self.args.target_port
 
-        send_result = self.__send_to_server(server_ip, server_port, data)
-        if (is_err(send_result)):
-            print(f"An error occured while sending packet from client {ip} {port} to server")
+        send_result = self.__send_to_server(
+            server_ip, server_port, data, sock=server_socket
+        )
+        if is_err(send_result):
+            print(
+                f"An error occured while sending packet from client {client_ip} {client_port} to server"
+            )
 
-        client_socket: socket.socket = send_result.ok_value
-        self.client_sockets[client_socket] = (ip, port)
+        sock = send_result.ok_value
+        if server_socket is None:
+            self.client_to_server_sockets_map[(client_ip, client_port)] = sock
 
     def start(self):
         listen_ip = self.args.listen_ip
         listen_port = self.args.listen_port
 
-        self.socket.bind((listen_ip, listen_port))
+        self.sock.bind((listen_ip, listen_port))
 
         while True:
-            data, addr = self.socket.recvfrom(1024)
-            ip, port = addr
+            rrrlist = [self.sock] + [x for x in self.client_to_server_sockets_map.values()]
+            rlist, _, _ = select.select(
+                rrrlist,
+                [],
+                [],
+            )
 
-            print(f"Received packet: {data} from {ip} {port}")
+            for sock in rlist:
+                if sock is self.sock:
+                    data, addr = sock.recvfrom(1024)
+                    client_ip, client_port = addr
 
-            if self.__is_server(ip, port):
-                self.__handle_server_connection(ip, port, data)
-            else:
-                self.__handle_client_connection(ip, port, data)
+                    print(f"Received packet: {data} from {client_ip} {client_port}")
+
+                    if (client_ip, client_port) in self.client_to_server_sockets_map:
+                        sock = self.client_to_server_sockets_map.get(
+                            (client_ip, client_port)
+                        )
+                        self.__handle_client_connection(
+                            client_ip, client_port, data, sock
+                        )
+                    else:
+                        self.__handle_client_connection(
+                            client_ip, client_port, data, None
+                        )
+                else:
+                    data, addr = sock.recvfrom(1024)
+                    (client_ip, client_port) = next((key for key, val in self.client_to_server_sockets_map.items() if val == sock), None)
+
+                    self.__handle_server_connection(client_ip, client_port, data)
+
 
 
 def main():

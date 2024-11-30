@@ -51,6 +51,8 @@ class TcpSession:
         b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
+        print(send_result)
+        print(self.client_ip, self.client_port)
         if is_err(send_result):
             return send_result
 
@@ -166,6 +168,7 @@ def main():
         while True:
             data, addr = sock.recv(1024).ok_value
             cpacket: TcpPacket = TcpPacket.from_bin(data)
+            print(cpacket)
             if addr in connections.keys():
                 session = connections.get(addr)
             else:
