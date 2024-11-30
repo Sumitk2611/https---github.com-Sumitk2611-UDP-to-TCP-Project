@@ -3,6 +3,7 @@ from result import Ok, Err, Result, is_ok, is_err
 from transitions import Machine
 from udp_socket import UdpSocket
 from packet import TcpPacket, TcpFlags
+import socket
 import time
 from transitions.extensions import GraphMachine
 
@@ -31,6 +32,9 @@ class TcpClient:
     last_acknowledgement = 0
     expected_sequence = last_sequence
 
+    MAX_RETRIES = 5
+    INITIAL_TIMEOUT = 1.0  # seconds
+
     def __init__(self, host: str, port: int) -> None:
         self.server_host = host
         self.server_port = port
@@ -48,6 +52,32 @@ class TcpClient:
         self.machine.add_transition("s_close", "ESTABLISHED", "CLOSED")
 
         self.get_graph().draw("client_state_diagram.png", prog="dot")
+
+    def __retransmit(self, send_func, recv_func, expected_validation=None):
+        timeout = self.INITIAL_TIMEOUT
+        retries = 0
+
+        while retries < self.MAX_RETRIES:
+            send_result = send_func()
+            if is_err(send_result):
+                return send_result
+
+            self.sock.settimeout(timeout)
+            recv_result = recv_func()
+
+            if is_ok(recv_result):
+                if expected_validation is None or expected_validation(
+                    recv_result.ok_value
+                ):
+                    self.sock.settimeout(None)  # Reset timeout
+                    return recv_result
+
+            # If validation fails, treat as timeout and retransmit
+            retries += 1
+            timeout *= 2  # Exponential backoff
+
+        self.sock.sock.settimeout(None)  # Reset timeout
+        return Err("Max retries exceeded - connection failed")
 
     def __send_syn_packet(self) -> Result[None, str]:
         packet = TcpPacket(
@@ -158,65 +188,82 @@ class TcpClient:
         if is_err(create_result):
             return create_result
 
-        send_result = self.__send_syn_packet()
-        if is_err(send_result):
-            return send_result
+        # Handle SYN-SYNACK-ACK exchange with retransmission
+        retransmit_result = self.__retransmit(
+            send_func=self.__send_syn_packet,
+            recv_func=self.__recv_syn_ack_packet,
+            expected_validation=lambda packet: packet.flags.is_syn_ack(),
+        )
+
+        if is_err(retransmit_result):
+            return retransmit_result
+
         self.s_send_syn()
-
-        recv_result = self.__recv_syn_ack_packet()
-        if is_err(recv_result):
-            return recv_result
         self.s_recv_syn_ack()
-        self.last_acknowledgement = recv_result.ok_value.sequence + 1
 
+        syn_ack_packet = retransmit_result.ok_value
+        self.last_acknowledgement = syn_ack_packet.sequence + 1
+
+        # Send final ACK with retransmission
         send_result = self.__send_ack_packet()
         if is_err(send_result):
             return send_result
-        self.s_establish_connection()
 
+        self.s_establish_connection()
         return Ok(None)
 
     def send_message(self, data) -> Result[None, str]:
+        def validate_ack(packet):
+            return packet.flags.ACK and packet.acknowledgement == self.expected_sequence
 
-        send_result = self.__send_data_packet(data)
-        if is_err(send_result):
-            return send_result
+        retransmit_result = self.__retransmit(
+            send_func=lambda: self.__send_data_packet(data),
+            recv_func=self.__recv_ack_packet,
+            expected_validation=validate_ack,
+        )
 
-        recv_result = self.__recv_ack_packet()
-        if is_err(recv_result):
-            return recv_result
+        if is_err(retransmit_result):
+            return retransmit_result
 
-        if self.expected_sequence == recv_result.ok_value.acknowledgement:
-            self.last_sequence = recv_result.ok_value.acknowledgement
-
+        ack_packet = retransmit_result.ok_value
+        self.last_sequence = ack_packet.acknowledgement
         return Ok(None)
 
     def close_connection(self) -> Result[None, str]:
-        send_result = self.__send_fin_packet()
-        if is_err(send_result):
-            return send_result
+        # Send FIN and wait for ACK
+        retransmit_result = self.__retransmit(
+            send_func=self.__send_fin_packet,
+            recv_func=self.__recv_ack_packet,
+            expected_validation=lambda packet: (
+                packet.flags.ACK and packet.acknowledgement == self.expected_sequence
+            ),
+        )
 
-        recv_result = self.__recv_ack_packet()
-        if is_err(recv_result):
-            return recv_result
+        if is_err(retransmit_result):
+            return retransmit_result
 
-        if self.expected_sequence == recv_result.ok_value.acknowledgement:
-            self.last_sequence = recv_result.ok_value.acknowledgement
+        ack_packet = retransmit_result.ok_value
+        self.last_sequence = ack_packet.acknowledgement
 
-        recv_result = self.__recv_fin_packet()
-        if is_err(recv_result):
-            return recv_result
-        if self.expected_sequence == recv_result.ok_value.acknowledgement:
-            self.last_sequence = recv_result.ok_value.acknowledgement
+        # Wait for server's FIN
+        fin_result = self.__recv_fin_packet()
+        if is_err(fin_result):
+            return fin_result
 
+        if self.expected_sequence == fin_result.ok_value.acknowledgement:
+            self.last_sequence = fin_result.ok_value.acknowledgement
+
+        # Send final ACK
         send_result = self.__send_ack_packet()
         if is_err(send_result):
             return send_result
+
         self.s_close()
+        return Ok(None)
 
 
 def main():
-    server_ip , server_port, timeout = argument_parser()
+    server_ip, server_port, timeout = argument_parser()
     client = TcpClient(host=server_ip, port=server_port)
 
     connect_result = client.connect()

@@ -52,6 +52,15 @@ class UdpSocket:
         except Exception as e:
             return Err(e)
 
+    def settimeout(self, timeout: int) -> Result[None, Exception | str]:
+        try:
+            data, addr = self.sock.settimeout(timeout)
+            return Ok(None)
+        except socket.error as e:
+            return Err(e.strerror)
+        except Exception as e:
+            return Err(e)
+
     def close(self) -> Result[None, str]:
         try:
             self.sock.close()
