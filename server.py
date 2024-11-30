@@ -28,6 +28,12 @@ class TcpSession:
     last_sequence = 100
     last_acknowledgement = 1
 
+    last_valid_sequence: int = None
+    last_valid_acknowledgement: int = None
+
+    MAX_RETRIES = 10
+    INITIAL_TIMEOUT = 1.0 
+
     def __init__(self, sock: UdpSocket, client_ip: str, client_port: str) -> None:
         self.sock = sock
         self.client_ip = client_ip
@@ -44,51 +50,131 @@ class TcpSession:
 
         self.get_graph().draw("server_state_diagram.png", prog="dot")
 
-    def __send_syn_ack(self) -> Result[None, Exception | str]:
-        packet = TcpPacket(
-            flags=TcpFlags(SYN=True, ACK=True),
-            sequence=self.last_sequence,
-            acknowledgement=self.last_acknowledgement,
-            data="",
-        )
-        self.last_sequence += 1
-        b_packet = packet.to_bin()
 
-        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-        if is_err(send_result):
-            return send_result
 
-        return Ok(None)
+    def __retransmit(self, send_func, recv_func=None, expected_validation=None) -> Result[None, str]:
+        timeout = self.INITIAL_TIMEOUT
+        retries = 0
 
-    def __send_ack(self) -> Result[None, Exception | str]:
-        packet = TcpPacket(
-            flags=TcpFlags(ACK=True),
-            sequence=self.last_sequence,
-            acknowledgement=self.last_acknowledgement,
-            data="",
-        )
-        b_packet = packet.to_bin()
+        while retries < self.MAX_RETRIES:
+            send_result = send_func()
+            if is_err(send_result):
+                return send_result
 
-        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-        if is_err(send_result):
-            return send_result
+            if recv_func:
+                self.sock.settimeout(timeout)
+                recv_result = recv_func()
 
-        return Ok(None)
+                if is_ok(recv_result):
+                    if expected_validation is None or expected_validation(recv_result.ok_value):
+                        if not self.__is_duplicate(recv_result.ok_value):  # Ensure no duplicates
+                            self.sock.settimeout(None)
+                            return recv_result
 
-    def __send_fin(self) -> Result[None, Exception | str]:
-        packet = TcpPacket(
-            flags=TcpFlags(FIN=True),
-            sequence=self.last_sequence,
-            acknowledgement=self.last_acknowledgement,
-            data="",
-        )
-        b_packet = packet.to_bin()
+            retries += 1
+            timeout *= 2  # Exponential backoff
 
-        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-        if is_err(send_result):
-            return send_result
+        self.sock.settimeout(None)  # Reset timeout
+        return Err("Max retries exceeded - operation failed")
 
-        return Ok(None)
+    def __is_duplicate(self, packet: TcpPacket) -> bool:
+        
+        if self.last_valid_sequence is not None:
+            return packet.sequence <= self.last_valid_acknowledgement
+        return False
+
+
+    def __send_syn_ack(self) -> Result[None, str]:
+        def send_func():
+            packet = TcpPacket(
+                flags=TcpFlags(SYN=True, ACK=True),
+                sequence=self.last_sequence,
+                acknowledgement=self.last_acknowledgement,
+                data="",
+            )
+            self.last_sequence += 1
+            b_packet = packet.to_bin()
+            return self.sock.send(b_packet, self.client_ip, self.client_port)
+
+        def recv_func():
+            try:
+                data, addr = self.sock.recv(1024).ok_value
+                received_packet = TcpPacket.from_bin(data)
+
+                # Check for duplicate packets
+                if self.__is_duplicate(received_packet):
+                    print(f"Ignoring duplicate packet from {addr[0]}:{addr[1]}")
+                    return Err("Duplicate packet received")
+
+                # Validate the incoming ACK packet
+                if (
+                    received_packet.flags.ACK
+                    and received_packet.acknowledgement == self.last_sequence
+                ):
+                    # Update valid sequence/acknowledgment numbers
+                    
+                    self.last_valid_acknowledgement = received_packet.sequence
+                    return Ok(received_packet)
+                else:
+                    return Err("Unexpected or invalid ACK received")
+            except Exception as e:
+                return Err(f"Error receiving ACK: {e}")
+
+
+        # Use __retransmit to send SYN-ACK and wait for a valid ACK
+        return self.__retransmit(send_func=send_func, recv_func=recv_func)
+
+
+    def __send_ack(self) -> Result[None, str]:
+        def send_func():
+            packet = TcpPacket(
+                flags=TcpFlags(ACK=True),
+                sequence=self.last_sequence,
+                acknowledgement=self.last_acknowledgement,
+                data="",
+            )
+            b_packet = packet.to_bin()
+            return self.sock.send(b_packet, self.client_ip, self.client_port)
+
+        def recv_func():
+            try:
+                data, addr = self.sock.recv(1024).ok_value
+                received_packet = TcpPacket.from_bin(data)
+
+                # Check for duplicate packets
+                if self.__is_duplicate(received_packet):
+                    print(f"Ignoring duplicate packet from {addr[0]}:{addr[1]}")
+                    return Err("Duplicate packet received")
+
+                # Validate the ACK packet
+                if (
+                    received_packet.flags.ACK
+                    and received_packet.acknowledgement == self.last_sequence
+                ):
+                    # Update valid sequence/acknowledgment numbers
+                    
+                    self.last_valid_acknowledgement = received_packet.sequence
+                    return Ok(received_packet)
+                else:
+                    return Err("Unexpected or invalid ACK received")
+            except Exception as e:
+                return Err(f"Error receiving ACK: {e}")
+
+        return self.__retransmit(send_func=send_func, recv_func=recv_func)
+
+
+    def __send_fin(self) -> Result[None, str]:
+        def send_func():
+            packet = TcpPacket(
+                flags=TcpFlags(FIN=True),
+                sequence=self.last_sequence,
+                acknowledgement=self.last_acknowledgement,
+                data="",
+            )
+            b_packet = packet.to_bin()
+            return self.sock.send(b_packet, self.client_ip, self.client_port)
+
+        return self.__retransmit(send_func=send_func)
 
     def __send_rst(self) -> Result[None, Exception | str]:
         packet = TcpPacket(
@@ -128,9 +214,21 @@ class TcpSession:
         return Ok(None)
 
     def on_packet(self, packet: TcpPacket):
+
+        if self.__is_duplicate(packet):
+                print(f"Ignoring duplicate packet from {self.client_ip}:{self.client_port}")                
+                if packet.flags.SYN:
+                    print(f"Retransmitting SYN-ACK for duplicate SYN from {self.client_ip}:{self.client_port}")
+                    self.__send_syn_ack()
+                else:
+                    # Optionally, acknowledge other duplicate packets
+                    self.__send_ack()
+                return
+
         match self.state:
             case "CLOSED":
                 if packet.flags.SYN:
+                    self.last_valid_acknowledgement = packet.sequence
                     self.last_acknowledgement = packet.acknowledgement + 1
                     send_result = self.__send_syn_ack()
                     if is_err(send_result):

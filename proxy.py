@@ -177,6 +177,8 @@ class ArgumentsHandler:
 
 
 class ProxyServer:
+
+    consecutive_drop_count = 0
     def __init__(self, args: ProxyConfig) -> None:
         self.args = args
         self.client_to_server_sockets_map = {}
@@ -230,12 +232,15 @@ class ProxyServer:
 
         if self.__should_drop_server_packet():
             print("Dropping server packet to client", client_ip, client_port)
+            self.consecutive_drop_count +=1
+            print(f"Consecutive drop count: {self.consecutive_drop_count}")
+            print(f"Data: {data}")
             return
 
         if self.__should_delay_server_packet():
             delay = self.__ms_to_s(self.args.server_delay)
             time.sleep(delay)
-
+        self.consecutive_drop_count = 0
         send_result = self.__send_to_client(
             client_ip, client_port, data 
         )
@@ -247,6 +252,7 @@ class ProxyServer:
     def __handle_client_connection(self, client_ip, client_port, data, server_socket):
         if self.__should_drop_client_packet():
             print("Dropping client packet from client", client_ip, client_port)
+            
             return
 
         if self.__should_delay_client_packet():
@@ -287,7 +293,7 @@ class ProxyServer:
                     data, addr = sock.recvfrom(1024)
                     client_ip, client_port = addr
 
-                    print(f"Received packet: {data} from {client_ip} {client_port}")
+                    #print(f"Received packet: {data} from {client_ip} {client_port}")
 
                     if (client_ip, client_port) in self.client_to_server_sockets_map:
                         sock = self.client_to_server_sockets_map.get(
