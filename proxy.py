@@ -299,18 +299,14 @@ class ProxyServer:
                         sock = self.client_to_server_sockets_map.get(
                             (client_ip, client_port)
                         )
-                        self.__handle_client_connection(
-                            client_ip, client_port, data, sock
-                        )
+                        threading.Thread(target=self.__handle_client_connection, args=(client_ip, client_port, data, sock)).start()
                     else:
-                        self.__handle_client_connection(
-                            client_ip, client_port, data, None
-                        )
+                        threading.Thread(target=self.__handle_client_connection, args=(client_ip, client_port, data, None)).start()
                 else:
                     data, addr = sock.recvfrom(1024)
                     (client_ip, client_port) = next((key for key, val in self.client_to_server_sockets_map.items() if val == sock), None)
 
-                    self.__handle_server_connection(client_ip, client_port, data)
+                    threading.Thread(target=self.__handle_server_connection, args=(client_ip, client_port, data)).start()
 
 
 
