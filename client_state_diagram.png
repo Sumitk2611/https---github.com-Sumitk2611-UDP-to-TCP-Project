@@ -19,7 +19,10 @@ stateDiagram-v2
   Class ESTABLISHED s_default
   
   CLOSED --> SYN_SENT: s_send_syn
+  CLOSED --> CLOSED: s_rst
   SYN_SENT --> SYN_ACK_RECVD: s_recv_syn_ack
+  SYN_SENT --> CLOSED: s_rst
   SYN_ACK_RECVD --> ESTABLISHED: s_establish_connection
-  ESTABLISHED --> CLOSED: s_close
+  SYN_ACK_RECVD --> CLOSED: s_rst
+  ESTABLISHED --> CLOSED: s_close | s_rst
   [*] --> CLOSED

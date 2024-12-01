@@ -6,7 +6,7 @@ from transitions import Machine
 from result import Ok, Err, Result, is_ok, is_err
 from transitions.extensions import GraphMachine
 import threading
-
+from Graph import Graph
 
 
 def argument_parser():
@@ -35,9 +35,13 @@ class TcpSession:
 
     MAX_RETRIES = 5
     retries = 0
-    INITIAL_TIMEOUT = 1.0
+    INITIAL_TIMEOUT = 100.0
 
     timer: threading.Timer
+
+    packet_sent_Graph = Graph("Packets Sent From Server")
+    packet_retransmission_Graph = Graph("Retransmitted Packets (Server)")
+    packet_received_Graph = Graph("Packets Received by Server")
 
     def __init__(self, sock: UdpSocket, client_ip: str, client_port: str) -> None:
         self.sock = sock
@@ -59,7 +63,11 @@ class TcpSession:
         """Start a timer to handle retransmissions."""
         def timeout_handler():    
             # Send the last packet again
+            
             self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
+            self.packet_retransmission_Graph.add_packet()
+            self.packet_sent_Graph.add_packet()
+            self.display_graphs
             # Check if retry count is within limits and restart the timer if necessary
             if self.retries < self.MAX_RETRIES:
                 self.start_timer()  # Restart the timer
@@ -72,7 +80,8 @@ class TcpSession:
         
         if self.retries < self.MAX_RETRIES:
             self.retries += 1
-            self.timer = threading.Timer(self.INITIAL_TIMEOUT * self.retries, timeout_handler)
+            self.INITIAL_TIMEOUT *= self.retries
+            self.timer = threading.Timer(self.INITIAL_TIMEOUT, timeout_handler)
             self.timer.start()
 
 
@@ -93,8 +102,11 @@ class TcpSession:
         self.last_packet_sent = packet
         self.last_sequence += 1
         b_packet = packet.to_bin()
+        print("Sending Syn ack")
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-
+        if is_ok(send_result):
+            print("packet sent")
+        self.packet_sent_Graph.add_packet()
         if is_ok(send_result):
             self.start_timer()
 
@@ -109,6 +121,7 @@ class TcpSession:
         )
         self.last_packet_sent = packet
         b_packet = packet.to_bin()
+        self.packet_sent_Graph.add_packet()
 
         # Send the packet
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
@@ -128,6 +141,7 @@ class TcpSession:
         )
         self.last_packet_sent = packet
         b_packet = packet.to_bin()
+        self.packet_sent_Graph.add_packet()
 
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
 
@@ -146,11 +160,10 @@ class TcpSession:
         )
         self.last_packet_sent = packet
         b_packet = packet.to_bin()
-
+        self.packet_sent_Graph.add_packet()
         # Send the packet
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
         
-        # No timer for RST since it doesn't expect acknowledgment
         return send_result
     def __close(self) -> Result[None, Exception | str]:
         send_result = self.__send_ack()
@@ -168,15 +181,19 @@ class TcpSession:
 
     def terminate_connection(self):
         send_result = self.__send_rst()
-
+        if self.timer:
+            self.timer.cancel()
         if is_err(send_result):
             return send_result
         self.s_rst()
         return Ok(None)
 
     def on_packet(self, packet: TcpPacket):
+        self.packet_received_Graph.add_packet()
         if self.__is_duplicate(packet):
                 self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
+                self.packet_retransmission_Graph.add_packet()
+                self.packet_sent_Graph.add_packet()
                 self.start_timer()
                 return
         
@@ -221,6 +238,15 @@ class TcpSession:
                         return send_result
         return
 
+    def display_graphs(self):
+        self.packet_sent_Graph.run()
+        self.packet_received_Graph.run()
+        self.packet_retransmission_Graph.run()
+
+    def destroy_graphs(self):
+        self.packet_received_Graph.close()
+        self.packet_retransmission_Graph.close()
+        self.packet_sent_Graph.close()
 
 def main():
     ip, port = argument_parser()
@@ -240,14 +266,19 @@ def main():
             else:
                 session = TcpSession(sock, addr[0], addr[1])
                 connections[addr] = session
-
+            print(cpacket)
             session.on_packet(cpacket)
+            session.display_graphs()
     except KeyboardInterrupt as e:
         for addr, session in connections.items():
             if session.get_state() == "CLOSED":
                 continue
             print(f"Processing session for {addr}")
             session.terminate_connection()
+        
+        print("Destroying Graph Windows")
+        session.destroy_graphs()
+        exit()
 
 
 if __name__ == "__main__":

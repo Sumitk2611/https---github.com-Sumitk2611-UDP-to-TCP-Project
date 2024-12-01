@@ -33,7 +33,7 @@ class TcpClient:
     expected_sequence = last_sequence
 
     MAX_RETRIES = 5
-    INITIAL_TIMEOUT = 1.0  # seconds
+    INITIAL_TIMEOUT = 10.0  # seconds
 
     def __init__(self, host: str, port: int) -> None:
         self.server_host = host
@@ -50,6 +50,7 @@ class TcpClient:
             "s_establish_connection", "SYN_ACK_RECVD", "ESTABLISHED"
         )
         self.machine.add_transition("s_close", "ESTABLISHED", "CLOSED")
+        self.machine.add_transition("s_rst", "*", "CLOSED")
 
         self.get_graph().draw("client_state_diagram.png", prog="dot")
 
@@ -106,7 +107,9 @@ class TcpClient:
             self.last_sequence = packet.acknowledgement+1
             return Ok(packet)
         if packet.flags.RST:
-            return Err("Server Sent a RST Packet. Terminating Connection")
+            print( "Server Sent a RST Packet. Terminating Connection")
+            self.s_rst()
+            exit()
 
         return Err(f"Expected a syn-ack packet, recieved {packet}")
 
@@ -151,7 +154,9 @@ class TcpClient:
         if packet.flags.ACK:
             return Ok(packet)
         if packet.flags.RST:
-            return Err("Server Sent a RST Packet. Terminating Connection")
+            print( "Server Sent a RST Packet. Terminating Connection")
+            self.s_rst()
+            exit()
 
         return Err(f"Expected a ACK packet, recieved {packet}")
 
@@ -165,7 +170,9 @@ class TcpClient:
         if packet.flags.FIN:
             return Ok(packet)
         if packet.flags.RST:
-            return Err("Server Sent a RST Packet. Terminating Connection")
+            print( "Server Sent a RST Packet. Terminating Connection")
+            self.s_rst()
+            exit()
 
         return Err(f"Expected a FIN packet, recieved {packet}")
 
@@ -266,7 +273,7 @@ class TcpClient:
 def main():
     server_ip, server_port, timeout = argument_parser()
     client = TcpClient(host=server_ip, port=server_port)
-
+    
     connect_result = client.connect()
     if is_err(connect_result):
         print(connect_result.err())
