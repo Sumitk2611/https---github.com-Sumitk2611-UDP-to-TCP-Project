@@ -234,7 +234,6 @@ class ProxyServer:
             print("Dropping server packet to client", client_ip, client_port)
             self.consecutive_drop_count +=1
             print(f"Consecutive drop count: {self.consecutive_drop_count}")
-            print(f"Data: {data}")
             return
 
         if self.__should_delay_server_packet():

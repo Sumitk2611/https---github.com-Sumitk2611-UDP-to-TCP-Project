@@ -86,7 +86,7 @@ class TcpClient:
             acknowledgement=self.last_acknowledgement,
             data="",
         )
-        self.last_sequence += 1
+        
         b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
@@ -103,6 +103,7 @@ class TcpClient:
         (raw_data, _) = recv_result.ok_value
         packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.is_syn_ack():
+            self.last_sequence = packet.acknowledgement+1
             return Ok(packet)
         if packet.flags.RST:
             return Err("Server Sent a RST Packet. Terminating Connection")

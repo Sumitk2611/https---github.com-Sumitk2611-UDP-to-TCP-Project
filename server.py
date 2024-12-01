@@ -5,6 +5,8 @@ from typing import Dict, Tuple
 from transitions import Machine
 from result import Ok, Err, Result, is_ok, is_err
 from transitions.extensions import GraphMachine
+import threading
+
 
 
 def argument_parser():
@@ -23,7 +25,7 @@ class TcpSession:
     client_ip: str
     client_port: str
 
-    states = ["CLOSED", "SYN_RECVD", "ESTABLISHED", "LAST_ACK"]
+    states = ["CLOSED", "SYN_RECVD", "ESTABLISHED"]
 
     last_sequence = 100
     last_acknowledgement = 1
@@ -31,10 +33,12 @@ class TcpSession:
     last_packet_received : TcpPacket = None
     last_packet_sent: TcpPacket = None
 
-    MAX_RETRIES = 10
+    MAX_RETRIES = 5
     retries = 0
-
     INITIAL_TIMEOUT = 1.0
+
+    timer: threading.Timer
+
     def __init__(self, sock: UdpSocket, client_ip: str, client_port: str) -> None:
         self.sock = sock
         self.client_ip = client_ip
@@ -45,98 +49,95 @@ class TcpSession:
         )
         self.machine.add_transition("s_syn_recvd", "CLOSED", "SYN_RECVD")
         self.machine.add_transition("s_established", "SYN_RECVD", "ESTABLISHED")
-        self.machine.add_transition("s_wait_for_ack", "ESTABLISHED", "LAST_ACK")
-        self.machine.add_transition("s_closed", "LAST_ACK", "CLOSED")
+        self.machine.add_transition("s_closed", "ESTABLISHED", "CLOSED")
         self.machine.add_transition("s_rst", "*", "CLOSED")
 
         self.get_graph().draw("server_state_diagram.png", prog="dot")
+        self.timer = None
+
+    def start_timer(self):
+        """Start a timer to handle retransmissions."""
+        def timeout_handler():    
+            # Send the last packet again
+            self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
+            # Check if retry count is within limits and restart the timer if necessary
+            if self.retries < self.MAX_RETRIES:
+                self.start_timer()  # Restart the timer
+            else:
+                print("Max retries reached. Stopping further retransmissions.")
+            return
+        
+        if self.timer:
+            self.timer.cancel()
+        
+        if self.retries < self.MAX_RETRIES:
+            self.retries += 1
+            self.timer = threading.Timer(self.INITIAL_TIMEOUT * self.retries, timeout_handler)
+            self.timer.start()
 
 
-
-    def __retransmit(self, send_func, recv_func=None, expected_validation=None) -> Result[None, str]:
-        timeout = self.INITIAL_TIMEOUT
-        retries = 0
-
-        while retries < self.MAX_RETRIES:
-            send_result = send_func()
-            if is_err(send_result):
-                return send_result
-
-            if not recv_func:
-                return send_result
-            
-            if recv_func:
-                self.sock.settimeout(timeout)
-                recv_result = recv_func()
-
-                if is_ok(recv_result):
-                    #print(recv_result.ok_value)
-                    if expected_validation is None or expected_validation(recv_result.ok_value):
-                        if not self.__is_duplicate(recv_result.ok_value):  # Ensure no duplicates
-                            self.sock.settimeout(None)
-                            return recv_result
-
-            retries += 1
-            
-
-        self.sock.settimeout(None)  # Reset timeout
-        return Err("Max retries exceeded - operation failed")
-
+    
     def __is_duplicate(self, packet: TcpPacket) -> bool:
         if self.last_packet_received:
             if self.last_packet_received.flags == packet.flags:
                 return packet.sequence <= self.last_packet_received.sequence
         return False
 
-
     def __send_syn_ack(self) -> Result[None, str]:
-        def send_func():
-            packet = TcpPacket(
-                flags=TcpFlags(SYN=True, ACK=True),
-                sequence=self.last_sequence,
-                acknowledgement=self.last_acknowledgement,
-                data="",
-            )
-            self.last_packet_sent = packet
-            self.last_sequence += 1
-            b_packet = packet.to_bin()
-            return self.sock.send(b_packet, self.client_ip, self.client_port)
+        packet = TcpPacket(
+            flags=TcpFlags(SYN=True, ACK=True),
+            sequence=self.last_sequence,
+            acknowledgement=self.last_acknowledgement,
+            data="",
+        )
+        self.last_packet_sent = packet
+        self.last_sequence += 1
+        b_packet = packet.to_bin()
+        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
 
+        if is_ok(send_result):
+            self.start_timer()
 
-        return self.__retransmit(send_func=send_func, recv_func=None)
-
+        return send_result
 
     def __send_ack(self) -> Result[None, str]:
-        def send_func():
-            packet = TcpPacket(
-                flags=TcpFlags(ACK=True),
-                sequence=self.last_sequence,
-                acknowledgement=self.last_acknowledgement,
-                data="",
-            )
-            self.last_packet_sent = packet
-            b_packet = packet.to_bin()
-            return self.sock.send(b_packet, self.client_ip, self.client_port)
+        packet = TcpPacket(
+            flags=TcpFlags(ACK=True),
+            sequence=self.last_sequence,
+            acknowledgement=self.last_acknowledgement,
+            data="",
+        )
+        self.last_packet_sent = packet
+        b_packet = packet.to_bin()
 
-        
-        return self.__retransmit(send_func=send_func, recv_func=None)
+        # Send the packet
+        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
 
+        # Start timer after sending the ACK packet
+        if is_ok(send_result):
+            self.start_timer()
+
+        return send_result
 
     def __send_fin(self) -> Result[None, str]:
-        def send_func():
-            packet = TcpPacket(
-                flags=TcpFlags(FIN=True),
-                sequence=self.last_sequence,
-                acknowledgement=self.last_acknowledgement,
-                data="",
-            )
-            self.last_packet_sent = packet
-            b_packet = packet.to_bin()
-            return self.sock.send(b_packet, self.client_ip, self.client_port)
+        packet = TcpPacket(
+            flags=TcpFlags(FIN=True),
+            sequence=self.last_sequence,
+            acknowledgement=self.last_acknowledgement,
+            data="",
+        )
+        self.last_packet_sent = packet
+        b_packet = packet.to_bin()
 
-        return self.__retransmit(send_func=send_func)
+        send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
 
-    def __send_rst(self) -> Result[None, Exception | str]:
+        if is_ok(send_result):
+            self.start_timer()
+
+        return send_result
+
+
+    def __send_rst(self) -> Result[None, str]:
         packet = TcpPacket(
             flags=TcpFlags(RST=True),
             sequence=self.last_sequence,
@@ -146,12 +147,11 @@ class TcpSession:
         self.last_packet_sent = packet
         b_packet = packet.to_bin()
 
+        # Send the packet
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-        if is_err(send_result):
-            return send_result
-
-        return Ok(None)
-
+        
+        # No timer for RST since it doesn't expect acknowledgment
+        return send_result
     def __close(self) -> Result[None, Exception | str]:
         send_result = self.__send_ack()
         if is_err(send_result):
@@ -160,7 +160,7 @@ class TcpSession:
         send_result = self.__send_fin()
         if is_err(send_result):
             return send_result
-        self.s_wait_for_ack()
+        self.s_closed()
         return Ok(None)
 
     def get_state(self):
@@ -176,11 +176,16 @@ class TcpSession:
 
     def on_packet(self, packet: TcpPacket):
         if self.__is_duplicate(packet):
-                print(f"Duplicate packet from {self.client_ip}:{self.client_port} retransmitting packet")                
                 self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
+                self.start_timer()
                 return
         
         self.last_packet_received = packet
+        self.retries = 0
+        
+        if self.timer:
+            self.timer.cancel()
+            
         match self.state:
             case "CLOSED":
                 if packet.flags.SYN:
@@ -214,11 +219,6 @@ class TcpSession:
                     send_result = self.__close()
                     if is_err(send_result):
                         return send_result
-
-            case "LAST_ACK":
-                if packet.flags.ACK:
-                    self.s_closed()
-                    print(f"Terminated Connection {self.client_ip} {self.client_port}")
         return
 
 
