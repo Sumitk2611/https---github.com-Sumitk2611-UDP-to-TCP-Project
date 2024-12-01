@@ -239,6 +239,7 @@ class ProxyServer:
         if self.__should_delay_server_packet():
             delay = self.__ms_to_s(self.args.server_delay)
             time.sleep(delay)
+
         self.consecutive_drop_count = 0
         send_result = self.__send_to_client(
             client_ip, client_port, data 
@@ -300,10 +301,12 @@ class ProxyServer:
                         )
                         threading.Thread(target=self.__handle_client_connection, args=(client_ip, client_port, data, sock)).start()
                     else:
-                        threading.Thread(target=self.__handle_client_connection, args=(client_ip, client_port, data, None)).start()
+                        # threading.Thread(target=self.__handle_client_connection, args=(client_ip, client_port, data, None)).start()
+                        self.__handle_client_connection(client_ip, client_port, data, None)
                 else:
                     data, addr = sock.recvfrom(1024)
                     (client_ip, client_port) = next((key for key, val in self.client_to_server_sockets_map.items() if val == sock), None)
+                    print(client_ip, client_port)
 
                     threading.Thread(target=self.__handle_server_connection, args=(client_ip, client_port, data)).start()
 
