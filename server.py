@@ -255,7 +255,7 @@ def main():
     sock = UdpSocket()
     sock.create()
     sock.bind(ip, port)
-
+    print("Server Started")
     connections: Dict[Tuple[str, int], TcpSession] = {}
     try:
         while True:

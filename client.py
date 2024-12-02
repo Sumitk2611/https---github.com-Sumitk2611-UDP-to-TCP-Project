@@ -64,7 +64,6 @@ class TcpClient:
         retries = 0
 
         while retries < self.MAX_RETRIES:
-            print(f"Attempt {retries + 1}: Sending packet...")
 
             send_result = send_func()
 
