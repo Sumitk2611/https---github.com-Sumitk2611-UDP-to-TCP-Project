@@ -58,7 +58,7 @@ class TcpSession:
 
     MAX_RETRIES = 5
     retries = 0
-    INITIAL_TIMEOUT = 100.0
+    INITIAL_TIMEOUT = 1.0
 
     packet_sent_Graph = Graph("Packets Sent From Server")
     packet_retransmission_Graph = Graph("Retransmitted Packets (Server)")

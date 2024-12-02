@@ -107,11 +107,12 @@ class TcpClient:
                     recv_result.ok_value
                 ):
                     self.sock.settimeout(None)  # Reset timeout
+                    self.INITIAL_TIMEOUT = timeout #set average communication time
                     return recv_result
 
             # If validation fails, treat as timeout and retransmit
             retries += 1
-            # timeout *= 2  # Exponential backoff
+            timeout *= 2  # Exponential backoff
 
         self.sock.sock.settimeout(None)  # Reset timeout
         return Err("Max retries exceeded - connection failed")
