@@ -14,7 +14,7 @@ def argument_parser():
         "--target-port", required=True, type=int, help="Server Port Number"
     )
     parser.add_argument("--target-ip", required=True, help="Server IP Address")
-    parser.add_argument("--timeout", required=True, help="Timeout in seconds")
+    parser.add_argument("--timeout", required=True, type=int, help="Timeout in seconds")
     args = parser.parse_args()
 
     return (args.target_ip, args.target_port, args.timeout)
