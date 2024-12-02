@@ -85,7 +85,7 @@ class TcpClient:
 
             # If validation fails, treat as timeout and retransmit
             retries += 1
-            timeout *= 2  # Exponential backoff
+            # timeout *= 2  # Exponential backoff
 
         self.sock.sock.settimeout(None)  # Reset timeout
         return Err("Max retries exceeded - connection failed")
