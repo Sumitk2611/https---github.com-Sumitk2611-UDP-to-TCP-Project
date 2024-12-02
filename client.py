@@ -3,8 +3,6 @@ from result import Ok, Err, Result, is_ok, is_err
 from transitions import Machine
 from udp_socket import UdpSocket
 from packet import TcpPacket, TcpFlags
-import socket
-import time
 from transitions.extensions import GraphMachine
 from Graph import Graph
 
@@ -34,15 +32,16 @@ class TcpClient:
     expected_sequence = last_sequence
 
     MAX_RETRIES = 5
-    INITIAL_TIMEOUT = 10.0  # seconds
+    INITIAL_TIMEOUT: int  # seconds
 
     packet_sent_Graph = Graph("Packets Sent From Client")
     packet_retransmission_Graph = Graph("Retransmitted Packets (Client)")
     packet_received_Graph = Graph("Packets Received by Client")
 
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(self, host: str, port: int, timeout: int) -> None:
         self.server_host = host
         self.server_port = port
+        self.INITIAL_TIMEOUT = timeout
 
         self.sock = UdpSocket()
         self.machine = GraphMachine(
@@ -310,7 +309,7 @@ class TcpClient:
 
 def main():
     server_ip, server_port, timeout = argument_parser()
-    client = TcpClient(host=server_ip, port=server_port)
+    client = TcpClient(host=server_ip, port=server_port, timeout=timeout)
 
     connect_result = client.connect()
     if is_err(connect_result):
