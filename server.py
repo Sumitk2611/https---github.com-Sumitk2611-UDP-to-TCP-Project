@@ -63,7 +63,7 @@ class TcpSession:
         """Start a timer to handle retransmissions."""
         def timeout_handler():    
             # Send the last packet again
-            
+            print("Retransmitting Packet")
             self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
             self.packet_retransmission_Graph.add_packet()
             self.packet_sent_Graph.add_packet()
@@ -102,14 +102,11 @@ class TcpSession:
         self.last_packet_sent = packet
         self.last_sequence += 1
         b_packet = packet.to_bin()
-        print("Sending Syn ack")
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-        if is_ok(send_result):
-            print("packet sent")
-        self.packet_sent_Graph.add_packet()
+        
         if is_ok(send_result):
             self.start_timer()
-
+        self.packet_sent_Graph.add_packet()
         return send_result
 
     def __send_ack(self) -> Result[None, str]:
@@ -194,6 +191,7 @@ class TcpSession:
     def on_packet(self, packet: TcpPacket):
         self.packet_received_Graph.add_packet()
         if self.__is_duplicate(packet):
+                print("Duplicate Packet Received")
                 self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
                 self.packet_retransmission_Graph.add_packet()
                 self.packet_sent_Graph.add_packet()
@@ -209,7 +207,7 @@ class TcpSession:
         match self.state:
             case "CLOSED":
                 if packet.flags.SYN:
-                    self.last_acknowledgement = packet.acknowledgement + 1
+                    self.last_acknowledgement = packet.sequence + 1
                     send_result = self.__send_syn_ack()
                     if is_err(send_result):
                         print( f"An error occured while sending syn ack to {self.client_ip} {self.client_port}")

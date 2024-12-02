@@ -64,6 +64,8 @@ class TcpClient:
         retries = 0
 
         while retries < self.MAX_RETRIES:
+            print(f"Attempt {retries + 1}: Sending packet...")
+
             send_result = send_func()
 
             #retransmission logic
@@ -72,7 +74,7 @@ class TcpClient:
 
             if is_err(send_result):
                 return send_result
-
+            
             self.sock.settimeout(timeout)
             recv_result = recv_func()
 
@@ -117,7 +119,7 @@ class TcpClient:
         (raw_data, _) = recv_result.ok_value
         packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.is_syn_ack():
-            self.last_sequence = packet.acknowledgement+1
+            self.last_sequence = packet.acknowledgement
             return Ok(packet)
         if packet.flags.RST:
             print( "Server Sent a RST Packet. Terminating Connection")
@@ -144,7 +146,6 @@ class TcpClient:
         return Ok(None)
 
     def __send_data_packet(self, data) -> Result[None, str]:
-        print("called")
         packet = TcpPacket(
             flags=TcpFlags(PSH=True, ACK=True),
             sequence=self.last_sequence,
@@ -172,6 +173,7 @@ class TcpClient:
         (raw_data, _) = recv_result.ok_value
         packet: TcpPacket = TcpPacket.from_bin(raw_data)
         if packet.flags.ACK:
+            self.last_sequence = packet.acknowledgement
             return Ok(packet)
         if packet.flags.RST:
             print( "Server Sent a RST Packet. Terminating Connection")
