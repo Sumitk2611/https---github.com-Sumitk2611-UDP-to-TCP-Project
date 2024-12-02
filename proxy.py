@@ -1,6 +1,7 @@
 import socket
 from result import Ok, Err, Result, is_ok, is_err
 import argparse
+import ipaddress
 from dataclasses import dataclass
 import threading
 import os
@@ -20,8 +21,8 @@ class ProxyConfig:
     server_drop: int
     client_delay: int
     server_delay: int
-    client_delay_time: int
-    server_delay_time: int
+    client_delay_time: list
+    server_delay_time: list
 
 
 class ArgumentsHandler:
@@ -123,56 +124,100 @@ class ArgumentsHandler:
         return Ok(None)
 
     def _setup_parser(self) -> None:
+        def valid_ip(value):
+            try:
+                return str(ipaddress.ip_address(value))
+            except ValueError:
+                raise argparse.ArgumentTypeError(f"{value} is not a valid IP address")
+
+        def valid_port(value):
+            port = int(value)
+            if not 0 <= port <= 65535:
+                raise argparse.ArgumentTypeError(f"{value} is not a valid port number (0-65535)")
+            return port
+
+        def valid_percentage(value):
+            percentage = float(value)
+            if not 0 <= percentage <= 100:
+                raise argparse.ArgumentTypeError(f"{value} must be between 0 and 100")
+            return percentage
+
+        def valid_delay_time(value):
+            try:
+                if '-' in str(value):
+                    start, end = map(int, value.split('-'))
+                    if start < 0 or end < 0:
+                        raise argparse.ArgumentTypeError(f"Delay time cannot be negative")
+                    if start > end:
+                        raise argparse.ArgumentTypeError(f"Range start must be less than end")
+                    return [start, end]
+                else:
+                    delay = int(value)
+                    if delay < 0:
+                        raise argparse.ArgumentTypeError(f"Delay time cannot be negative")
+                    return [delay, delay]
+            except ValueError:
+                raise argparse.ArgumentTypeError(f"Invalid delay time format. Use a number or range (e.g., '100-200')")
+
         self._parser.add_argument(
-            "--listen-ip", required=True, help="IP to bind the proxy server"
+            "--listen-ip", 
+            required=True, 
+            type=valid_ip,
+            help="IP to bind the proxy server (IPv4 or IPv6)"
         )
         self._parser.add_argument(
             "--listen-port",
             required=True,
-            type=int,
-            help="Port to listen for client packets",
+            type=valid_port,
+            help="Port to listen for client packets (0-65535)"
         )
         self._parser.add_argument(
-            "--target-ip", required=True, help="IP of the server to forward packets to"
+            "--target-ip", 
+            required=True, 
+            type=valid_ip,
+            help="IP of the server to forward packets to (IPv4 or IPv6)"
         )
         self._parser.add_argument(
-            "--target-port", required=True, type=int, help="Port of the server"
+            "--target-port", 
+            required=True, 
+            type=valid_port,
+            help="Port of the server (0-65535)"
         )
         self._parser.add_argument(
             "--client-drop",
-            type=float,
+            type=valid_percentage,
             default=0,
-            help="Drop chance (0%% - 100%%) for client packets",
+            help="Drop chance (0%% - 100%%) for client packets"
         )
         self._parser.add_argument(
             "--server-drop",
-            type=float,
+            type=valid_percentage,
             default=0,
-            help="Drop chance (0%% - 100%%) for server packets",
+            help="Drop chance (0%% - 100%%) for server packets"
         )
         self._parser.add_argument(
             "--client-delay",
-            type=float,
+            type=valid_percentage,
             default=0,
-            help="Delay chance (0%% - 100%%) for client packets",
+            help="Delay chance (0%% - 100%%) for client packets"
         )
         self._parser.add_argument(
             "--server-delay",
-            type=float,
+            type=valid_percentage,
             default=0,
-            help="Delay chance (0%% - 100%%) for server packets",
+            help="Delay chance (0%% - 100%%) for server packets"
         )
         self._parser.add_argument(
             "--client-delay-time",
-            type=int,
-            default=0,
-            help="Delay time in ms (fixed or range) for client packets",
+            type=valid_delay_time,
+            default="0",
+            help="Delay time in ms (single value or range e.g., '100' or '100-200') for client packets"
         )
         self._parser.add_argument(
             "--server-delay-time",
-            type=int,
-            default=0,
-            help="Delay time in ms (fixed or range) for server packets",
+            type=valid_delay_time,
+            default="0",
+            help="Delay time in ms (single value or range e.g., '100' or '100-200') for server packets"
         )
 
 
@@ -204,11 +249,11 @@ class ProxyServer:
     def __should_delay_server_packet(self) -> bool:
         return random.random() < (self.args.server_delay / 100.0)
 
+    def __random_delay_time(self, times) -> float:
+        return self.__ms_to_s(random.randint(times[0], times[1]))
+
     def __ms_to_s(self, raw: int):
         return raw / 1000.0
-
-    def __is_server(self, ip, port):
-        return ip == self.args.target_ip and port == self.args.target_port
 
     def __send_to_server(
         self, ip: str, port: int, data, sock: socket.socket
@@ -238,7 +283,7 @@ class ProxyServer:
             return
 
         if self.__should_delay_server_packet():
-            delay = self.__ms_to_s(self.args.server_delay)
+            delay = self.__random_delay_time(self.args.server_delay_time)
             time.sleep(delay)
 
         self.consecutive_drop_count = 0
@@ -256,7 +301,8 @@ class ProxyServer:
             return
 
         if self.__should_delay_client_packet():
-            delay = self.__ms_to_s(self.args.client_delay)
+            delay = self.__random_delay_time(self.args.client_delay_time)
+            print(f"Delaying client by {delay}")
             time.sleep(delay)
 
         server_ip = self.args.target_ip

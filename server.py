@@ -203,6 +203,27 @@ class TcpSession:
                     self.s_established()
                     print(f"Connection established {self.client_ip} {self.client_port}")
 
+                # Copied from below, in case SYN -> SYN ACK -> [ACK(This gets dropped)]
+                if packet.flags.is_psh_ack():
+                    print(f"ACK Recieved from {self.client_ip} {self.client_port}")
+                    self.s_established()
+                    print(f"Connection established {self.client_ip} {self.client_port}")
+
+                    print(f"Client {self.client_ip}: {packet.data}")
+                    self.last_acknowledgement = packet.sequence + len(packet.data)
+                    send_result = self.__send_ack()
+                    if is_err(send_result):
+                        print(
+                            f"An error occured while sending ack to {self.client_ip} {self.client_port}"
+                        )
+                        print(send_result.err())
+                elif packet.flags.FIN:
+                    print("Received FIN Packet closing connection")
+                    self.last_acknowledgement = packet.sequence + len(packet.data)
+                    send_result = self.__close()
+                    if is_err(send_result):
+                        return send_result
+
             case "ESTABLISHED":
                 if packet.flags.is_psh_ack():
                     print(f"Client {self.client_ip}: {packet.data}")

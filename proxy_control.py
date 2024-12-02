@@ -6,35 +6,58 @@ import json
 def main():
     parser = argparse.ArgumentParser()
 
+    def valid_percentage(value):
+        percentage = float(value)
+        if not 0 <= percentage <= 100:
+            raise argparse.ArgumentTypeError(f"{value} must be between 0 and 100")
+        return percentage
+
+    def valid_delay_time(value):
+        try:
+            if '-' in str(value):
+                start, end = map(int, value.split('-'))
+                if start < 0 or end < 0:
+                    raise argparse.ArgumentTypeError(f"Delay time cannot be negative")
+                if start > end:
+                    raise argparse.ArgumentTypeError(f"Range start must be less than end")
+                return [start, end]
+            else:
+                delay = int(value)
+                if delay < 0:
+                    raise argparse.ArgumentTypeError(f"Delay time cannot be negative")
+                return [delay, delay]
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"Invalid delay time format. Use a number or range (e.g., '100-200')")
+
     parser.add_argument(
         "--client-drop",
-        type=float,
-        help="Drop chance (0% - 100%) for client packets",
+        type=valid_percentage,
+        help="Drop chance (0%% - 100%%) for client packets"
     )
     parser.add_argument(
         "--server-drop",
-        type=float,
-        help="Drop chance (0% - 100%) for server packets",
+        type=valid_percentage,
+        help="Drop chance (0%% - 100%%) for server packets"
     )
     parser.add_argument(
         "--client-delay",
-        type=float,
-        help="Delay chance (0% - 100%) for client packets",
+        type=valid_percentage,
+        help="Delay chance (0%% - 100%%) for client packets"
     )
     parser.add_argument(
         "--server-delay",
-        type=float,
-        help="Delay chance (0% - 100%) for server packets",
+        type=valid_percentage,
+        help="Delay chance (0%% - 100%%) for server packets"
     )
     parser.add_argument(
         "--client-delay-time",
-        type=int,
-        help="Delay time in ms (fixed or range) for client packets",
+        type=valid_delay_time,
+        help="Delay time in ms (single value or range e.g., '100' or '100-200') for client packets"
     )
     parser.add_argument(
         "--server-delay-time",
-        type=int,
-        help="Delay time in ms (fixed or range) for server packets",
+        type=valid_delay_time,
+        help="Delay time in ms (single value or range e.g., '100' or '100-200') for server packets"
     )
 
     args = parser.parse_args()
