@@ -173,6 +173,9 @@ class TcpSession:
         send_result = self.__send_fin()
         if is_err(send_result):
             return send_result
+        
+        if self.timer:
+            self.timer.cancel()
         self.s_closed()
         return Ok(None)
 

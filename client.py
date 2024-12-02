@@ -6,6 +6,7 @@ from packet import TcpPacket, TcpFlags
 import socket
 import time
 from transitions.extensions import GraphMachine
+from Graph import Graph
 
 
 def argument_parser():
@@ -35,6 +36,10 @@ class TcpClient:
     MAX_RETRIES = 5
     INITIAL_TIMEOUT = 10.0  # seconds
 
+    packet_sent_Graph = Graph("Packets Sent From Client")
+    packet_retransmission_Graph = Graph("Retransmitted Packets (Client)")
+    packet_received_Graph = Graph("Packets Received by Client")
+
     def __init__(self, host: str, port: int) -> None:
         self.server_host = host
         self.server_port = port
@@ -60,6 +65,11 @@ class TcpClient:
 
         while retries < self.MAX_RETRIES:
             send_result = send_func()
+
+            #retransmission logic
+            if(retries > 0):
+                self.packet_retransmission_Graph.add_packet()
+
             if is_err(send_result):
                 return send_result
 
@@ -93,11 +103,14 @@ class TcpClient:
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
         if is_err(send_result):
             return send_result
+        
+        self.packet_sent_Graph.add_packet()
 
         return Ok(None)
 
     def __recv_syn_ack_packet(self) -> Result[None, str]:
         recv_result = self.sock.recv(1024)
+        self.packet_received_Graph.add_packet()
         if is_err(recv_result):
             return recv_result
 
@@ -123,12 +136,15 @@ class TcpClient:
         b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
+
         if is_err(send_result):
             return send_result
+        self.packet_sent_Graph.add_packet()
 
         return Ok(None)
 
     def __send_data_packet(self, data) -> Result[None, str]:
+        print("called")
         packet = TcpPacket(
             flags=TcpFlags(PSH=True, ACK=True),
             sequence=self.last_sequence,
@@ -142,10 +158,14 @@ class TcpClient:
         if is_err(send_result):
             return send_result
 
+        self.packet_sent_Graph.add_packet()
+
         return Ok(None)
 
     def __recv_ack_packet(self) -> Result[None, str]:
         recv_result = self.sock.recv(1024)
+        self.packet_received_Graph.add_packet()
+
         if is_err(recv_result):
             return recv_result
 
@@ -162,6 +182,8 @@ class TcpClient:
 
     def __recv_fin_packet(self) -> Result[None, str]:
         recv_result = self.sock.recv(1024)
+        self.packet_received_Graph.add_packet()
+
         if is_err(recv_result):
             return recv_result
 
@@ -189,6 +211,9 @@ class TcpClient:
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
         if is_err(send_result):
             return send_result
+
+        self.packet_sent_Graph.add_packet()
+
         return Ok(None)
 
     def connect(self) -> Result[None, str]:
@@ -269,6 +294,16 @@ class TcpClient:
         self.s_close()
         return Ok(None)
 
+    def display_graphs(self):
+        self.packet_sent_Graph.run()
+        self.packet_received_Graph.run()
+        self.packet_retransmission_Graph.run()
+
+    def destroy_graphs(self):
+        self.packet_received_Graph.close()
+        self.packet_retransmission_Graph.close()
+        self.packet_sent_Graph.close()
+
 
 def main():
     server_ip, server_port, timeout = argument_parser()
@@ -283,11 +318,13 @@ def main():
         while True:
             message = input("You: ")
             result = client.send_message(data=message)
+            client.display_graphs()
             if is_err(result):
                 raise Exception(result.err_value)
     except KeyboardInterrupt:
         print("\nExiting...")
         client.close_connection()
+        client.destroy_graphs()
         exit()
     except Exception as e:
         print(e)
