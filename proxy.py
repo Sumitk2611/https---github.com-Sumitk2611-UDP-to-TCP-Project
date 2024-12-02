@@ -142,25 +142,25 @@ class ArgumentsHandler:
             "--client-drop",
             type=float,
             default=0,
-            help="Drop chance (0% - 100%) for client packets",
+            help="Drop chance (0%% - 100%%) for client packets",
         )
         self._parser.add_argument(
             "--server-drop",
             type=float,
             default=0,
-            help="Drop chance (0% - 100%) for server packets",
+            help="Drop chance (0%% - 100%%) for server packets",
         )
         self._parser.add_argument(
             "--client-delay",
             type=float,
             default=0,
-            help="Delay chance (0% - 100%) for client packets",
+            help="Delay chance (0%% - 100%%) for client packets",
         )
         self._parser.add_argument(
             "--server-delay",
             type=float,
             default=0,
-            help="Delay chance (0% - 100%) for server packets",
+            help="Delay chance (0%% - 100%%) for server packets",
         )
         self._parser.add_argument(
             "--client-delay-time",
