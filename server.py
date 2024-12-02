@@ -94,6 +94,7 @@ class TcpSession:
         return False
 
     def __send_syn_ack(self) -> Result[None, str]:
+        print(f"Sending SYN ACK to {self.client_ip} {self.client_port}")
         packet = TcpPacket(
             flags=TcpFlags(SYN=True, ACK=True),
             sequence=self.last_sequence,
@@ -210,6 +211,8 @@ class TcpSession:
         match self.state:
             case "CLOSED":
                 if packet.flags.SYN:
+                    print(f"SYN Recieved from {self.client_ip} {self.client_port}")
+
                     self.last_acknowledgement = packet.sequence + 1
                     send_result = self.__send_syn_ack()
                     if is_err(send_result):
@@ -221,7 +224,7 @@ class TcpSession:
                     self.s_syn_recvd()
             case "SYN_RECVD":
                 if packet.flags.ACK:
-                    self.__send_ack()
+                    print(f"ACK Recieved from {self.client_ip} {self.client_port}")
                     self.s_established()
                     print(f"Connection established {self.client_ip} {self.client_port}")
 
@@ -273,7 +276,7 @@ def main():
             else:
                 session = TcpSession(sock, addr[0], addr[1])
                 connections[addr] = session
-            print(cpacket)
+
             session.on_packet(cpacket)
             session.display_graphs()
     except KeyboardInterrupt as e:

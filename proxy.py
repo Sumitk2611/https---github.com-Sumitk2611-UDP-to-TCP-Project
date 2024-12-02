@@ -229,7 +229,7 @@ class ProxyServer:
             return Err(e.strerror)
 
     def __handle_server_connection(self, client_ip, client_port, data):
-        print("Server connection!")
+        print(f"Server packet to {client_ip} {client_port}")
 
         if self.__should_drop_server_packet():
             print("Dropping server packet to client", client_ip, client_port)
@@ -249,9 +249,10 @@ class ProxyServer:
             )
 
     def __handle_client_connection(self, client_ip, client_port, data, server_socket):
+        print(f"Packet from client {client_ip} {client_port}")
+
         if self.__should_drop_client_packet():
             print("Dropping client packet from client", client_ip, client_port)
-
             return
 
         if self.__should_delay_client_packet():
@@ -319,7 +320,7 @@ class ProxyServer:
                         ),
                         None,
                     )
-                    print(client_ip, client_port)
+                    # print(client_ip, client_port)
 
                     threading.Thread(
                         target=self.__handle_server_connection,

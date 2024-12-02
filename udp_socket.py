@@ -54,7 +54,7 @@ class UdpSocket:
 
     def settimeout(self, timeout: int) -> Result[None, Exception | str]:
         try:
-            data, addr = self.sock.settimeout(timeout)
+            self.sock.settimeout(timeout)
             return Ok(None)
         except socket.error as e:
             return Err(e.strerror)

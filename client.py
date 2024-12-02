@@ -64,7 +64,6 @@ class TcpClient:
         retries = 0
 
         while retries < self.MAX_RETRIES:
-
             send_result = send_func()
 
             # retransmission logic
@@ -250,8 +249,11 @@ class TcpClient:
         def validate_ack(packet):
             return packet.flags.ACK and packet.acknowledgement == self.expected_sequence
 
+        def send():
+            return self.__send_data_packet(data)
+
         retransmit_result = self.__retransmit(
-            send_func=lambda: self.__send_data_packet(data),
+            send_func=send,
             recv_func=self.__recv_ack_packet,
             expected_validation=validate_ack,
         )
