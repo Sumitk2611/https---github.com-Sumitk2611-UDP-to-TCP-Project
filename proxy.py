@@ -179,6 +179,7 @@ class ArgumentsHandler:
 class ProxyServer:
 
     consecutive_drop_count = 0
+
     def __init__(self, args: ProxyConfig) -> None:
         self.args = args
         self.client_to_server_sockets_map = {}
@@ -220,7 +221,7 @@ class ProxyServer:
         except socket.error as e:
             return Err(e.strerror)
 
-    def __send_to_client( self, ip: str, port: int, data) -> Result[None, str]:
+    def __send_to_client(self, ip: str, port: int, data) -> Result[None, str]:
         try:
             self.sock.sendto(data, (ip, port))
             return Ok(None)
@@ -232,7 +233,7 @@ class ProxyServer:
 
         if self.__should_drop_server_packet():
             print("Dropping server packet to client", client_ip, client_port)
-            self.consecutive_drop_count +=1
+            self.consecutive_drop_count += 1
             print(f"Consecutive drop count: {self.consecutive_drop_count}")
             return
 
@@ -241,9 +242,7 @@ class ProxyServer:
             time.sleep(delay)
 
         self.consecutive_drop_count = 0
-        send_result = self.__send_to_client(
-            client_ip, client_port, data 
-        )
+        send_result = self.__send_to_client(client_ip, client_port, data)
         if is_err(send_result):
             print(
                 f"An error occured while sending packet from server to {client_ip} {client_port} client"
@@ -252,7 +251,7 @@ class ProxyServer:
     def __handle_client_connection(self, client_ip, client_port, data, server_socket):
         if self.__should_drop_client_packet():
             print("Dropping client packet from client", client_ip, client_port)
-            
+
             return
 
         if self.__should_delay_client_packet():
@@ -281,7 +280,9 @@ class ProxyServer:
         self.sock.bind((listen_ip, listen_port))
 
         while True:
-            rrrlist = [self.sock] + [x for x in self.client_to_server_sockets_map.values()]
+            rrrlist = [self.sock] + [
+                x for x in self.client_to_server_sockets_map.values()
+            ]
             rlist, _, _ = select.select(
                 rrrlist,
                 [],
@@ -293,23 +294,37 @@ class ProxyServer:
                     data, addr = sock.recvfrom(1024)
                     client_ip, client_port = addr
 
-                    #print(f"Received packet: {data} from {client_ip} {client_port}")
+                    # print(f"Received packet: {data} from {client_ip} {client_port}")
 
                     if (client_ip, client_port) in self.client_to_server_sockets_map:
                         sock = self.client_to_server_sockets_map.get(
                             (client_ip, client_port)
                         )
-                        threading.Thread(target=self.__handle_client_connection, args=(client_ip, client_port, data, sock)).start()
+                        threading.Thread(
+                            target=self.__handle_client_connection,
+                            args=(client_ip, client_port, data, sock),
+                        ).start()
                     else:
                         # threading.Thread(target=self.__handle_client_connection, args=(client_ip, client_port, data, None)).start()
-                        self.__handle_client_connection(client_ip, client_port, data, None)
+                        self.__handle_client_connection(
+                            client_ip, client_port, data, None
+                        )
                 else:
                     data, addr = sock.recvfrom(1024)
-                    (client_ip, client_port) = next((key for key, val in self.client_to_server_sockets_map.items() if val == sock), None)
+                    (client_ip, client_port) = next(
+                        (
+                            key
+                            for key, val in self.client_to_server_sockets_map.items()
+                            if val == sock
+                        ),
+                        None,
+                    )
                     print(client_ip, client_port)
 
-                    threading.Thread(target=self.__handle_server_connection, args=(client_ip, client_port, data)).start()
-
+                    threading.Thread(
+                        target=self.__handle_server_connection,
+                        args=(client_ip, client_port, data),
+                    ).start()
 
 
 def main():

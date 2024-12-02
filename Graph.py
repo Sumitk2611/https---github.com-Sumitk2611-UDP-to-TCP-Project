@@ -1,7 +1,9 @@
 import matplotlib
-matplotlib.use('TkAgg')  # Set an interactive backend
+
+matplotlib.use("TkAgg")  # Set an interactive backend
 import matplotlib.pyplot as plt
 import datetime
+
 
 class Graph:
     def __init__(self, title):
@@ -50,9 +52,10 @@ class Graph:
         """Run the graphing loop."""
         self.update()
         plt.show(block=False)
-    
+
     def close(self):
         plt.close()
+
 
 # Example Usage
 if __name__ == "__main__":
@@ -60,6 +63,7 @@ if __name__ == "__main__":
     graph.run()
 
     import time
+
     for i in range(10):
         time.sleep(1)  # Simulate packet addition at 1-second intervals
         graph.add_packet()

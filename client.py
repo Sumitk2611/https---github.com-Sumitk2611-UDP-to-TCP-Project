@@ -67,13 +67,13 @@ class TcpClient:
 
             send_result = send_func()
 
-            #retransmission logic
-            if(retries > 0):
+            # retransmission logic
+            if retries > 0:
                 self.packet_retransmission_Graph.add_packet()
 
             if is_err(send_result):
                 return send_result
-            
+
             self.sock.settimeout(timeout)
             recv_result = recv_func()
 
@@ -98,13 +98,13 @@ class TcpClient:
             acknowledgement=self.last_acknowledgement,
             data="",
         )
-        
+
         b_packet = packet.to_bin()
 
         send_result = self.sock.send(b_packet, self.server_host, self.server_port)
         if is_err(send_result):
             return send_result
-        
+
         self.packet_sent_Graph.add_packet()
 
         return Ok(None)
@@ -121,7 +121,7 @@ class TcpClient:
             self.last_sequence = packet.acknowledgement
             return Ok(packet)
         if packet.flags.RST:
-            print( "Server Sent a RST Packet. Terminating Connection")
+            print("Server Sent a RST Packet. Terminating Connection")
             self.s_rst()
             exit()
 
@@ -175,7 +175,7 @@ class TcpClient:
             self.last_sequence = packet.acknowledgement
             return Ok(packet)
         if packet.flags.RST:
-            print( "Server Sent a RST Packet. Terminating Connection")
+            print("Server Sent a RST Packet. Terminating Connection")
             self.s_rst()
             exit()
 
@@ -193,7 +193,7 @@ class TcpClient:
         if packet.flags.FIN:
             return Ok(packet)
         if packet.flags.RST:
-            print( "Server Sent a RST Packet. Terminating Connection")
+            print("Server Sent a RST Packet. Terminating Connection")
             self.s_rst()
             exit()
 
@@ -309,7 +309,7 @@ class TcpClient:
 def main():
     server_ip, server_port, timeout = argument_parser()
     client = TcpClient(host=server_ip, port=server_port)
-    
+
     connect_result = client.connect()
     if is_err(connect_result):
         print(connect_result.err())

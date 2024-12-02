@@ -30,7 +30,7 @@ class TcpSession:
     last_sequence = 100
     last_acknowledgement = 1
 
-    last_packet_received : TcpPacket = None
+    last_packet_received: TcpPacket = None
     last_packet_sent: TcpPacket = None
 
     MAX_RETRIES = 5
@@ -61,10 +61,13 @@ class TcpSession:
 
     def start_timer(self):
         """Start a timer to handle retransmissions."""
-        def timeout_handler():    
+
+        def timeout_handler():
             # Send the last packet again
             print("Retransmitting Packet")
-            self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
+            self.sock.send(
+                self.last_packet_sent.to_bin(), self.client_ip, self.client_port
+            )
             self.packet_retransmission_Graph.add_packet()
             self.packet_sent_Graph.add_packet()
             self.display_graphs
@@ -74,18 +77,16 @@ class TcpSession:
             else:
                 print("Max retries reached. Stopping further retransmissions.")
             return
-        
+
         if self.timer:
             self.timer.cancel()
-        
+
         if self.retries < self.MAX_RETRIES:
             self.retries += 1
             self.INITIAL_TIMEOUT *= self.retries
             self.timer = threading.Timer(self.INITIAL_TIMEOUT, timeout_handler)
             self.timer.start()
 
-
-    
     def __is_duplicate(self, packet: TcpPacket) -> bool:
         if self.last_packet_received:
             if self.last_packet_received.flags == packet.flags:
@@ -103,7 +104,7 @@ class TcpSession:
         self.last_sequence += 1
         b_packet = packet.to_bin()
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-        
+
         if is_ok(send_result):
             self.start_timer()
         self.packet_sent_Graph.add_packet()
@@ -147,7 +148,6 @@ class TcpSession:
 
         return send_result
 
-
     def __send_rst(self) -> Result[None, str]:
         packet = TcpPacket(
             flags=TcpFlags(RST=True),
@@ -160,8 +160,9 @@ class TcpSession:
         self.packet_sent_Graph.add_packet()
         # Send the packet
         send_result = self.sock.send(b_packet, self.client_ip, self.client_port)
-        
+
         return send_result
+
     def __close(self) -> Result[None, Exception | str]:
         send_result = self.__send_ack()
         if is_err(send_result):
@@ -170,7 +171,7 @@ class TcpSession:
         send_result = self.__send_fin()
         if is_err(send_result):
             return send_result
-        
+
         if self.timer:
             self.timer.cancel()
         self.s_closed()
@@ -191,26 +192,30 @@ class TcpSession:
     def on_packet(self, packet: TcpPacket):
         self.packet_received_Graph.add_packet()
         if self.__is_duplicate(packet):
-                print("Duplicate Packet Received")
-                self.sock.send(self.last_packet_sent.to_bin(), self.client_ip, self.client_port)
-                self.packet_retransmission_Graph.add_packet()
-                self.packet_sent_Graph.add_packet()
-                self.start_timer()
-                return
-        
+            print("Duplicate Packet Received")
+            self.sock.send(
+                self.last_packet_sent.to_bin(), self.client_ip, self.client_port
+            )
+            self.packet_retransmission_Graph.add_packet()
+            self.packet_sent_Graph.add_packet()
+            self.start_timer()
+            return
+
         self.last_packet_received = packet
         self.retries = 0
-        
+
         if self.timer:
             self.timer.cancel()
-            
+
         match self.state:
             case "CLOSED":
                 if packet.flags.SYN:
                     self.last_acknowledgement = packet.sequence + 1
                     send_result = self.__send_syn_ack()
                     if is_err(send_result):
-                        print( f"An error occured while sending syn ack to {self.client_ip} {self.client_port}")
+                        print(
+                            f"An error occured while sending syn ack to {self.client_ip} {self.client_port}"
+                        )
                         print(send_result.err())
 
                     self.s_syn_recvd()
@@ -249,6 +254,7 @@ class TcpSession:
         self.packet_retransmission_Graph.close()
         self.packet_sent_Graph.close()
 
+
 def main():
     ip, port = argument_parser()
 
@@ -261,7 +267,7 @@ def main():
         while True:
             data, addr = sock.recv(1024).ok_value
             cpacket: TcpPacket = TcpPacket.from_bin(data)
-            #print(cpacket)
+            # print(cpacket)
             if addr in connections.keys():
                 session = connections.get(addr)
             else:
@@ -276,7 +282,7 @@ def main():
                 continue
             print(f"Processing session for {addr}")
             session.terminate_connection()
-        
+
         print("Destroying Graph Windows")
         session.destroy_graphs()
         exit()
