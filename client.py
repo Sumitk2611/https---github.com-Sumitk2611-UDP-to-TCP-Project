@@ -5,16 +5,43 @@ from udp_socket import UdpSocket
 from packet import TcpPacket, TcpFlags
 from transitions.extensions import GraphMachine
 from Graph import Graph
+import ipaddress
 
 
 def argument_parser():
+    def positive_int(value):
+        ivalue = int(value)
+        if ivalue < 0:
+            raise argparse.ArgumentTypeError("Must be 0 or greater.")
+
+        return ivalue
+
+    def valid_port(value):
+        port = int(value)
+        if not 0 <= port <= 65535:
+            raise argparse.ArgumentTypeError(
+                f"{value} is not a valid port number (0-65535)"
+            )
+
+        return port
+
+    def valid_ip(value):
+        """Validate that the input is a valid IPv4 or IPv6 address."""
+        try:
+            return str(ipaddress.ip_address(value))
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{value} is not a valid IP address")
+
+
     """Parse command-line arguments for IP and port."""
     parser = argparse.ArgumentParser(description="Client Side")
     parser.add_argument(
-        "--target-port", required=True, type=int, help="Server Port Number"
+        "--target-port", required=True, type=valid_port, help="Server Port Number"
     )
-    parser.add_argument("--target-ip", required=True, help="Server IP Address")
-    parser.add_argument("--timeout", required=True, type=int, help="Timeout in seconds")
+    parser.add_argument("--target-ip", required=True, type=valid_ip, help="Server IP Address")
+    parser.add_argument(
+        "--timeout", required=True, type=positive_int, help="Timeout in seconds"
+    )
     args = parser.parse_args()
 
     return (args.target_ip, args.target_port, args.timeout)
