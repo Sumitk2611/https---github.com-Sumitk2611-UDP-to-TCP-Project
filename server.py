@@ -5,17 +5,40 @@ from typing import Dict, Tuple
 from transitions import Machine
 from result import Ok, Err, Result, is_ok, is_err
 from transitions.extensions import GraphMachine
-import threading
+import ipaddress
 from Graph import Graph
 
 
 def argument_parser():
+    def valid_port(value):
+        port = int(value)
+        if not 0 <= port <= 65535:
+            raise argparse.ArgumentTypeError(
+                f"{value} is not a valid port number (0-65535)"
+            )
+        return port
+
+    def valid_ip(value):
+        try:
+            return str(ipaddress.ip_address(value))
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{value} is not a valid IP address")
+
     parser = argparse.ArgumentParser(description="Server Side")
     parser.add_argument(
-        "--listen-port", required=True, type=int, help="Port to listen on "
+        "--listen-port",
+        required=True,
+        type=valid_port,
+        help="Port to listen on (0-65535)",
     )
-    parser.add_argument("--listen-ip", required=True, help="IP Address to bind to")
+    parser.add_argument(
+        "--listen-ip",
+        required=True,
+        type=valid_ip,
+        help="IP Address to bind to (IPv4 or IPv6)",
+    )
     args = parser.parse_args()
+
     return (args.listen_ip, args.listen_port)
 
 
